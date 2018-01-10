@@ -78,7 +78,7 @@ def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_fi
                 batch = sess.run(get_next)
 
                 feed_dict = {
-                    adam_learning_rate: learning_rate,
+                    # adam_learning_rate: learning_rate,
                     dispnet.img1: batch["img1"],
                     dispnet.img2: batch["img2"],
                     dispnet.disp: batch["disp"],
@@ -140,23 +140,23 @@ def load_pfm(name):
 
         data = np.fromfile(file, endian + 'f')
 
-    shape = (height, width)
+    shape = (height, width, 1)
     return np.reshape(data, shape) * scale
 
 def data_map(s):
     s = tf.string_split([s], delimiter="\t")
 
     example = dict()
-    example["img1"] = tf.expand_dims(load_image(s.values[0]), axis=0)
-    example["img2"] = tf.expand_dims(load_image(s.values[1]), axis=0)
-    example["disp"] = tf.expand_dims(tf.expand_dims(tf.py_func(load_pfm, [s.values[2]], tf.float32), axis=0), axis=-1)
+    example["img1"] = load_image(s.values[0])
+    example["img2"] = load_image(s.values[1])
+    example["disp"] = tf.py_func(load_pfm, [s.values[2]], tf.float32)
 
     return example
 
 def data_crop(d):
-    d["img1"] = tf.image.resize_image_with_crop_or_pad(d["img1"], 768, 364)
-    d["img2"] = tf.image.resize_image_with_crop_or_pad(d["img2"], 768, 364)
-    d["disp"] = tf.image.resize_image_with_crop_or_pad(d["disp"], 768, 364)
+    d["img1"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img1"], 768, 384), [-1, 768, 384, 3])
+    d["img2"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img2"], 768, 384), [-1, 768, 384, 3])
+    d["disp"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["disp"], 768, 384), [-1, 768, 384, 1])
 
     return d
 
