@@ -5,20 +5,51 @@ import numpy as np
 import re
 import os
 
-def train(num_loss, examples_file, batch_size, epochs, learning_rate, summary_dir=None, load_file=None, save_file=None):
+
+# We
+# set β1 = 0.9 and β2 = 0.999 as in Kingma et al. [14]. As
+# learning rate we used λ = 1e − 4 and divided it by 2 every
+# 200 000 iterations starting from iteration 400 000.
+# Due to the depth of the networks and the direct connections
+# between contracting and expanding layers (see Table
+# 2), lower layers get mixed gradients if all six losses are
+# active. We found that using a loss weight schedule can be
+# beneficial: we start training with a loss weight of 1 assigned
+# to the lowest resolution loss loss6 and a weight of 0 for
+# all other losses (that is, all other losses are switched off).
+# During training, we progressively increase the weights of
+# losses with higher resolution and deactivate the low resolution
+# losses. This enables the network to first learn a coarse
+# representation and then proceed with finer resolutions without
+# losses constraining intermediate features
+
+def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     dispnet = DispNet()
 
     dataset = tf.data.TextLineDataset(examples_file)
     dataset = dataset.map(data_map)
     dataset.shuffle(buffer_size=22390)
     # dataset augmentation needs to happen here
+    # Despite the large training set, we
+    # chose to perform data augmentation to introduce more diversity
+    # into the training data at almost no extra cost12. We
+    # perform spatial transformations (rotation, translation, cropping,
+    # scaling) and chromatic transformations (color, contrast,
+    # brightness), and we use the same transformation for
+    # all 2 or 4 input images.
+    # For disparity, introducing any rotation or vertical shift
+    # would break the epipolar constraint. Horizontal shifts
+    # would lead to negnegative disparities or shifting infinity towards
+    # the camera.
+
     dataset.repeat(epochs)
     dataset.batch(batch_size)
 
     iterator = dataset.make_initializable_iterator()
     get_next = iterator.get_next()
 
-    train_op = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(dispnet.loss)
+    adam_learning_rate = tf.placeholder([1], name='learning_rate')
+    train_op = tf.train.AdamOptimizer(learning_rate=adam_learning_rate).minimize(dispnet.loss)
     summaries_op = tf.summary.merge_all()
 
     if summary_dir:
@@ -28,6 +59,8 @@ def train(num_loss, examples_file, batch_size, epochs, learning_rate, summary_di
     weights[num_loss] = 1.0
     report_frequency = 500
     save_frequency = 5000
+
+    learning_rate = 1e-4
 
     with tf.Session() as sess:
         step = 1
@@ -42,6 +75,7 @@ def train(num_loss, examples_file, batch_size, epochs, learning_rate, summary_di
                 batch = sess.run(get_next)
 
                 feed_dict = {
+                    adam_learning_rate: learning_rate,
                     dispnet.img1: batch["img1"],
                     dispnet.img2: batch["img2"],
                     dispnet.disp: batch["disp"],
@@ -115,4 +149,4 @@ def data_map(s):
     return example
 
 if __name__ == '__main__':
-    train(0, "FlyingThings3D_release_TRAIN.list", 32, 10, 1e-5, summary_dir="summaries")
+    train(0, "FlyingThings3D_release_TRAIN.list", 32, 10, summary_dir="summaries")

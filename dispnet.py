@@ -66,6 +66,8 @@ class DispNet:
         tf.summary.scalar("loss5", self.loss5)
         tf.summary.scalar("loss6", self.loss6)
 
+        tf.summary.image("img1", self.img1)
+        tf.summary.image("img2", self.img2)
         tf.summary.image("pr1", self.pr1)
         tf.summary.image("pr2", self.pr2)
         tf.summary.image("pr3", self.pr3)
