@@ -117,20 +117,20 @@ def load_image(file):
     return image
 
 def load_pfm(name):
-    with open(name) as file:
-        header = file.readline().rstrip()
+    with open(name, "rb") as file:
+        header = file.readline().decode('utf-8').rstrip()
         if header == 'PF':
             raise Exception("expecting non color PFM")
         elif header != 'Pf':
             raise Exception('Not a PFM file.')
 
-        dim_match = re.match(r'^(\d+)\s(\d+)\s$', file.readline())
+        dim_match = re.match(r'^(\d+)\s(\d+)\s$', file.readline()..decode('utf-8'))
         if dim_match:
             width, height = map(int, dim_match.groups())
         else:
             raise Exception('Malformed PFM header.')
 
-        scale = float(file.readline().rstrip())
+        scale = float(file.readline().decode('utf-8').rstrip())
         if scale < 0: # little-endian
             endian = '<'
             scale = -scale
