@@ -114,7 +114,7 @@ def save_network(name):
 def load_image(file):
     image_string = tf.read_file(file)
     image_decoded = tf.image.decode_image(image_string, channels=3)
-    image = tf.cast(image_decoded, tf.float32)
+    image = tf.image.convert_image_dtype(image_decoded, dtype=tf.float32)
     return image
 
 def load_pfm(name):
@@ -147,9 +147,9 @@ def data_map(s):
     s = tf.string_split([s], delimiter="\t")
 
     example = dict()
-    example["img1"] = load_image(s.values[0])
-    example["img2"] = load_image(s.values[1])
-    example["disp"] = tf.py_func(load_pfm, [s.values[2]], tf.float32)
+    example["img1"] = tf.expand_dims(load_image(s.values[0]), axis=0)
+    example["img2"] = tf.expand_dims(load_image(s.values[1]), axis=0)
+    example["disp"] = tf.expand_dims(tf.expand_dims(tf.py_func(load_pfm, [s.values[2]], tf.float32), axis=0), axis=-1)
 
     return example
 
@@ -157,6 +157,8 @@ def data_crop(d):
     d["img1"] = tf.image.resize_image_with_crop_or_pad(d["img1"], 768, 364)
     d["img2"] = tf.image.resize_image_with_crop_or_pad(d["img2"], 768, 364)
     d["disp"] = tf.image.resize_image_with_crop_or_pad(d["disp"], 768, 364)
+
+    return d
 
 if __name__ == '__main__':
     train(0, "FlyingThings3D_release_TRAIN.list", 32, 10, summary_dir="summaries")
