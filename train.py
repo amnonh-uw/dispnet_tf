@@ -24,17 +24,29 @@ import sys
 # representation and then proceed with finer resolutions without
 # losses constraining intermediate features
 
-def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
+def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     report_frequency = 500
-    save_frequency = 5000
+    save_frequency = 50000
+    test_frequency = 10000
     learning_rate = 1e-4
+    weight_decay = 0.0004
+    train_file = "FlyingThings3D_release_TRAIN.list"
+    test_file = "FlyingThings3D_release_TEST.list"
+    loss_weights = np.array([1.0, 0.2, 0.2, 0.2, 0.2, 0.2], dtype=np.float32)
 
     dispnet = DispNet()
 
-    dataset = tf.contrib.data.TextLineDataset(examples_file)
-    dataset = dataset.map(data_map)
-    dataset = dataset.map(data_crop)
-    dataset.shuffle(buffer_size=22390)
+    train_dataset = tf.contrib.data.TextLineDataset(train_file)
+    test_dataset = tf.contrib.data.TextLineDataset(test_file)
+    train_dataset = train_dataset.map(data_map)
+    test_dataset = test_dataset.map(data_map)
+    train_dataset = train_dataset.map(data_augment)
+    test_dataset = test_dataset.map(data_crop)
+    train_dataset.shuffle(buffer_size=22390)
+    train_dataset.repeat(epochs)
+    train_dataset.batch(batch_size)
+    test_dataset.batch(batch_size)
+
     # dataset augmentation needs to happen here
     # Despite the large training set, we
     # chose to perform data augmentation to introduce more diversity
@@ -48,57 +60,111 @@ def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_fi
     # would lead to negnegative disparities or shifting infinity towards
     # the camera.
 
-    dataset.repeat(epochs)
-    dataset.batch(batch_size)
-
-    iterator = dataset.make_initializable_iterator()
-    get_next = iterator.get_next()
-
-    # adam_learning_rate = tf.placeholder(tf.float32, [1], name='learning_rate')
-    adam_learning_rate = learning_rate
+    adam_learning_rate = tf.placeholder(tf.float32, [1], name='learning_rate')
     train_op = tf.train.AdamOptimizer(learning_rate=adam_learning_rate).minimize(dispnet.loss)
     summaries_op = tf.summary.merge_all()
 
     if summary_dir:
         summary_writer = tf.summary.FileWriter(summary_dir, tf.get_default_graph())
 
-    weights = np.zeros([6], dtype=np.float32)
-    weights[num_loss] = 1.0
-
-
     with tf.Session() as sess:
-        step = 1
+        step = 0
+        steps_since_lr_udpate = None
+        steps_since_last_report = 0
+        steps_since_last_save = 0
+        steps_since_last_test = 0
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
         if load_file != None:
             load_network(load_file)
 
+        iterator = train_dataset.make_initializable_iterator()
+        get_next = iterator.get_next()
         sess.run(iterator.initializer)
         while True:
             try:
                 batch = sess.run(get_next)
+                batch_size = batch["img1"].shape()[0]
 
                 feed_dict = {
-                    # adam_learning_rate: learning_rate,
+                    adam_learning_rate: learning_rate,
+                    dispnet.weight_decay: weight_decay,
                     dispnet.img1: batch["img1"],
                     dispnet.img2: batch["img2"],
                     dispnet.disp: batch["disp"],
-                    dispnet.weights: weights
+                    dispnet.loss_weights: loss_weights
                 }
 
                 _, loss, summary = sess.run([train_op, dispnet.loss, summaries_op], feed_dict=feed_dict)
 
+                step += batch_size
                 summary_writer.add_summary(summary, step)
-                step += 1
-                if (step % report_frequency == 0):
+
+                steps_since_last_report += batch_size
+                if (steps_since_last_report >  report_frequency):
+                    steps_since_last_report -= report_frequency
                     print("train step {} loss {}".format(step, loss))
                     sys.stdout.flush()
 
-                if (step % save_frequency == 0) and save_file:
-                    save_network(save_file)
+                steps_since_last_save += batch_size
+                if (steps_since_last_save >  save_frequency):
+                    steps_since_last_save -= save_frequency
+                    if save_file:
+                        save_network(save_file)
+
+                steps_since_last_test += batch_size
+                if(steps_since_last_test > test_frequency):
+                    steps_since_last_test -= test_frequency
+                    test(dispnet, sess, test_dataset)
+
+                if step > 400000:
+                    if steps_since_lr_udpate == None:
+                        steps_since_lr_update = step - 400000
+                        learning_rate /= 2
+                        print("new learning rate {}".format(learning_rate))
+                        sys.stdout.flush()
+                    else:
+                        steps_since_lr_update += batch_size
+
+                        if steps_since_lr_udpate > 200000:
+                            steps_since_lr_update -= 200000
+                            learning_rate /= 2
+                            print("new learning rate {}".format(learning_rate))
+                            sys.stdout.flush()
 
             except tf.errors.OutOfRangeError:
                 break
+
+def test(dispnet, sess, test_dataset):
+    loss_weights = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+    iterator = test_dataset.make_initializable_iterator()
+    get_next = iterator.get_next()
+    sess.run(iterator.initializer)
+    total_loss = 0.0
+    step = 0
+
+    while True:
+        try:
+            batch = sess.run(get_next)
+            batch_size = batch["img1"].shape()[0]
+
+            feed_dict = {
+                dispnet.weight_decay: 0.0,
+                dispnet.img1: batch["img1"],
+                dispnet.img2: batch["img2"],
+                dispnet.disp: batch["disp"],
+                dispnet.loss_weights: loss_weights
+            }
+
+            loss = sess.run([dispnet.loss], feed_dict=feed_dict)
+            total_loss += loss
+
+            step += batch_size
+        except tf.errors.OutOfRangeError:
+            break
+
+        print("average loss on test set is {}".format(total_loss / float(step)))
 
 def load_network(name):
     print("loading {}".format(name))
@@ -162,5 +228,8 @@ def data_crop(d):
 
     return d
 
+def data_augment(d):
+    return data_crop(d)
+
 if __name__ == '__main__':
-    train(0, "FlyingThings3D_release_TRAIN.list", 32, 10, summary_dir="summaries")
+    train(32, 100, summary_dir="summaries")

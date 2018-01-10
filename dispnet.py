@@ -2,10 +2,13 @@ import tensorflow as tf
 
 class DispNet:
     def __init__(self):
+        self.kernel_regularizer = tf.contrib.layers.l2_regularizer(1.0)
+
         self.img1 = tf.placeholder(tf.float32, shape=[None, 768,384,3], name="img1")
         self.img2 = tf.placeholder(tf.float32, shape=[None, 768,384,3], name="img2")
         self.disp = tf.placeholder(tf.float32, shape=[None, 768,384,1], name="disp")
-        self.weights = tf.placeholder(tf.float32, shape=[6], name="weights")
+        self.loss_weights = tf.placeholder(tf.float32, shape=[6], name="loss_weights")
+        self.weight_decay = tf.placeholder(tf.float2, shape=[1], name='weight_decay')
         imgs = tf.concat([self.img1, self.img2], axis=3)
 
         conv1 = self.conv_relu(imgs, 7, 2, 64, "conv1")
@@ -51,10 +54,12 @@ class DispNet:
         self.pr1 = self.conv(iconv1, 3, 1, 1, name="pr1")
         self.loss1 = self.l1loss(self.pr1, self.disp, "loss1")
 
-        self.loss = self.loss6 * self.weights[0]
+        self.loss = self.loss1 * self.loss_weights[0]
 
-        for w, l in zip(range(1,6),[self.loss5, self.loss4, self.loss3, self.loss2, self.loss1]):
-            self.loss += l * self.weights[w]
+        for w, l in zip(range(1,6),[self.loss2, self.loss3, self.loss4, self.loss5, self.loss6]):
+            self.loss += l * self.loss_weights[w]
+
+        self.loss += self.weight_decay * tf.losses.get_regularization_loss()
 
         self.add_summaries()
 
@@ -79,6 +84,7 @@ class DispNet:
         return tf.layers.conv2d(inputs=inputs,
                                 filters=channels,
                                 kernel_size=(kernel_size, kernel_size),
+                                kernel_regularizer=self.kernel_regularizer,
                                 strides=(stride, stride),
                                 padding='same',
                                 activation=activation,
@@ -92,6 +98,7 @@ class DispNet:
         return tf.layers.conv2d_transpose(inputs=input,
                                           filters=channels,
                                           kernel_size=(kernel_size, kernel_size),
+                                          kernel_regularizer=self.kernel_regularizer,
                                           strides=(stride, stride),
                                           padding='same',
                                           activation=activation,
@@ -103,7 +110,7 @@ class DispNet:
     def l1loss(self, pred, gt, name):
         pred_shape = pred.get_shape()
         gt = tf.image.resize_images(gt, pred_shape[1:3])
-        return tf.reduce_sum(tf.abs(pred - gt), name=name)
+        return tf.reduce_mean(tf.abs(pred - gt), name=name)
 
     def concat(self, values, axis):
         return tf.concat(values, axis)
