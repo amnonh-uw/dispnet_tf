@@ -60,7 +60,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     # would lead to negnegative disparities or shifting infinity towards
     # the camera.
 
-    adam_learning_rate = tf.placeholder(tf.float32, [1], name='learning_rate')
+    adam_learning_rate = tf.placeholder(tf.float32, [], name='learning_rate')
     train_op = tf.train.AdamOptimizer(learning_rate=adam_learning_rate).minimize(dispnet.loss)
     summaries_op = tf.summary.merge_all()
 
@@ -84,7 +84,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
         while True:
             try:
                 batch = sess.run(get_next)
-                batch_size = batch["img1"].shape()[0]
+                batch_size = batch["img1"].shape[0]
 
                 feed_dict = {
                     adam_learning_rate: learning_rate,
@@ -101,23 +101,23 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                 summary_writer.add_summary(summary, step)
 
                 steps_since_last_report += batch_size
-                if (steps_since_last_report >  report_frequency):
+                if (steps_since_last_report >=  report_frequency):
                     steps_since_last_report -= report_frequency
                     print("train step {} loss {}".format(step, loss))
                     sys.stdout.flush()
 
                 steps_since_last_save += batch_size
-                if (steps_since_last_save >  save_frequency):
+                if (steps_since_last_save >=  save_frequency):
                     steps_since_last_save -= save_frequency
                     if save_file:
                         save_network(save_file)
 
                 steps_since_last_test += batch_size
-                if(steps_since_last_test > test_frequency):
+                if(steps_since_last_test >= test_frequency):
                     steps_since_last_test -= test_frequency
                     test(dispnet, sess, test_dataset)
 
-                if step > 400000:
+                if step >= 400000:
                     if steps_since_lr_udpate == None:
                         steps_since_lr_update = step - 400000
                         learning_rate /= 2
@@ -126,7 +126,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                     else:
                         steps_since_lr_update += batch_size
 
-                        if steps_since_lr_udpate > 200000:
+                        if steps_since_lr_udpate >= 200000:
                             steps_since_lr_update -= 200000
                             learning_rate /= 2
                             print("new learning rate {}".format(learning_rate))
@@ -147,7 +147,7 @@ def test(dispnet, sess, test_dataset):
     while True:
         try:
             batch = sess.run(get_next)
-            batch_size = batch["img1"].shape()[0]
+            batch_size = batch["img1"].shape[0]
 
             feed_dict = {
                 dispnet.weight_decay: 0.0,
@@ -222,9 +222,9 @@ def data_map(s):
     return example
 
 def data_crop(d):
-    d["img1"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img1"], 768, 384), [-1, 768, 384, 3])
-    d["img2"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img2"], 768, 384), [-1, 768, 384, 3])
-    d["disp"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["disp"], 768, 384), [-1, 768, 384, 1])
+    d["img1"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img1"], 384, 768), [-1, 384, 768, 3])
+    d["img2"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img2"], 384, 768), [-1,  384, 768, 3])
+    d["disp"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["disp"], 384, 768), [-1, 384, 768, 1])
 
     return d
 

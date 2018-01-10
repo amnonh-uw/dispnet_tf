@@ -4,11 +4,11 @@ class DispNet:
     def __init__(self):
         self.kernel_regularizer = tf.contrib.layers.l2_regularizer(1.0)
 
-        self.img1 = tf.placeholder(tf.float32, shape=[None, 768,384,3], name="img1")
-        self.img2 = tf.placeholder(tf.float32, shape=[None, 768,384,3], name="img2")
-        self.disp = tf.placeholder(tf.float32, shape=[None, 768,384,1], name="disp")
+        self.img1 = tf.placeholder(tf.float32, shape=[None, 384, 768, 3], name="img1")
+        self.img2 = tf.placeholder(tf.float32, shape=[None, 384, 768, 3], name="img2")
+        self.disp = tf.placeholder(tf.float32, shape=[None, 384, 768, 1], name="disp")
         self.loss_weights = tf.placeholder(tf.float32, shape=[6], name="loss_weights")
-        self.weight_decay = tf.placeholder(tf.float2, shape=[1], name='weight_decay')
+        self.weight_decay = tf.placeholder(tf.float32, shape=[], name='weight_decay')
         imgs = tf.concat([self.img1, self.img2], axis=3)
 
         conv1 = self.conv_relu(imgs, 7, 2, 64, "conv1")
