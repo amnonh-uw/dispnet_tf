@@ -124,7 +124,7 @@ def load_pfm(name):
         elif header != 'Pf':
             raise Exception('Not a PFM file.')
 
-        dim_match = re.match(r'^(\d+)\s(\d+)\s$', file.readline()..decode('utf-8'))
+        dim_match = re.match(r'^(\d+)\s(\d+)\s$', file.readline().decode('utf-8'))
         if dim_match:
             width, height = map(int, dim_match.groups())
         else:
