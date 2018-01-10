@@ -4,6 +4,7 @@ from PIL import Image
 import numpy as np
 import re
 import os
+import sys
 
 
 # We
@@ -91,6 +92,7 @@ def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_fi
                 step += 1
                 if (step % report_frequency == 0):
                     print("train step {} loss {}".format(step, loss))
+                    sys.stdout.flush()
 
                 if (step % save_frequency == 0) and save_file:
                     save_network(save_file)
