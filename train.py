@@ -24,9 +24,13 @@ import os
 # losses constraining intermediate features
 
 def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
+    report_frequency = 500
+    save_frequency = 5000
+    learning_rate = 1e-4
+
     dispnet = DispNet()
 
-    dataset = tf.data.TextLineDataset(examples_file)
+    dataset = tf.contrib.data.TextLineDataset(examples_file)
     dataset = dataset.map(data_map)
     dataset.shuffle(buffer_size=22390)
     # dataset augmentation needs to happen here
@@ -48,7 +52,8 @@ def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_fi
     iterator = dataset.make_initializable_iterator()
     get_next = iterator.get_next()
 
-    adam_learning_rate = tf.placeholder([1], name='learning_rate')
+    # adam_learning_rate = tf.placeholder(tf.float32, [1], name='learning_rate')
+    adam_learning_rate = learning_rate
     train_op = tf.train.AdamOptimizer(learning_rate=adam_learning_rate).minimize(dispnet.loss)
     summaries_op = tf.summary.merge_all()
 
@@ -57,10 +62,7 @@ def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_fi
 
     weights = np.zeros([6], dtype=np.float32)
     weights[num_loss] = 1.0
-    report_frequency = 500
-    save_frequency = 5000
 
-    learning_rate = 1e-4
 
     with tf.Session() as sess:
         step = 1
@@ -114,32 +116,34 @@ def load_image(file):
     image = tf.cast(image_decoded, tf.float32)
     return image
 
-def load_pfm(file):
-  header = file.readline().rstrip()
-  if header == 'PF':
-    raise Exception("expecting non color PFM")
-  elif header != 'Pf':
-    raise Exception('Not a PFM file.')
+def load_pfm(name):
+    with open(name) as file:
+        header = file.readline().rstrip()
+        if header == 'PF':
+            raise Exception("expecting non color PFM")
+        elif header != 'Pf':
+            raise Exception('Not a PFM file.')
 
-  dim_match = re.match(r'^(\d+)\s(\d+)\s$', file.readline())
-  if dim_match:
-    width, height = map(int, dim_match.groups())
-  else:
-    raise Exception('Malformed PFM header.')
+        dim_match = re.match(r'^(\d+)\s(\d+)\s$', file.readline())
+        if dim_match:
+            width, height = map(int, dim_match.groups())
+        else:
+            raise Exception('Malformed PFM header.')
 
-  scale = float(file.readline().rstrip())
-  if scale < 0: # little-endian
-    endian = '<'
-    scale = -scale
-  else:
-    endian = '>' # big-endian
+        scale = float(file.readline().rstrip())
+        if scale < 0: # little-endian
+            endian = '<'
+            scale = -scale
+        else:
+            endian = '>' # big-endian
 
-  data = np.fromfile(file, endian + 'f')
-  shape = (height, width)
-  return np.reshape(data, shape) * scale
+        data = np.fromfile(file, endian + 'f')
+
+    shape = (height, width)
+    return np.reshape(data, shape) * scale
 
 def data_map(s):
-    s = tf.string_split([s], delimiter="\t", skip_empty=False)
+    s = tf.string_split([s], delimiter="\t")
 
     example = dict()
     example["img1"] = load_image(s.values[0])
