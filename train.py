@@ -32,6 +32,7 @@ def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_fi
 
     dataset = tf.contrib.data.TextLineDataset(examples_file)
     dataset = dataset.map(data_map)
+    dataset = dataset.map(data_crop)
     dataset.shuffle(buffer_size=22390)
     # dataset augmentation needs to happen here
     # Despite the large training set, we
@@ -84,7 +85,7 @@ def train(num_loss, examples_file, batch_size, epochs, summary_dir=None, load_fi
                     dispnet.weights: weights
                 }
 
-                _, loss, summary = sess.run([train_op, loss, summaries_op], feed_dict=feed_dict)
+                _, loss, summary = sess.run([train_op, dispnet.loss, summaries_op], feed_dict=feed_dict)
 
                 summary_writer.add_summary(summary, step)
                 step += 1
@@ -151,6 +152,11 @@ def data_map(s):
     example["disp"] = tf.py_func(load_pfm, [s.values[2]], tf.float32)
 
     return example
+
+def data_crop(d):
+    d["img1"] = tf.image.resize_image_with_crop_or_pad(d["img1"], 768, 364)
+    d["img2"] = tf.image.resize_image_with_crop_or_pad(d["img2"], 768, 364)
+    d["disp"] = tf.image.resize_image_with_crop_or_pad(d["disp"], 768, 364)
 
 if __name__ == '__main__':
     train(0, "FlyingThings3D_release_TRAIN.list", 32, 10, summary_dir="summaries")
