@@ -84,13 +84,13 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
         while True:
             try:
                 batch = sess.run(get_next)
-                batch_size = batch["img1"].shape[0]
+                batch_size = batch["img_left"].shape[0]
 
                 feed_dict = {
                     adam_learning_rate: learning_rate,
                     dispnet.weight_decay: weight_decay,
-                    dispnet.img1: batch["img1"],
-                    dispnet.img2: batch["img2"],
+                    dispnet.img_left: batch["img_left"],
+                    dispnet.img_right: batch["img_right"],
                     dispnet.disp: batch["disp"],
                     dispnet.loss_weights: loss_weights
                 }
@@ -151,8 +151,8 @@ def test(dispnet, sess, test_dataset):
 
             feed_dict = {
                 dispnet.weight_decay: 0.0,
-                dispnet.img1: batch["img1"],
-                dispnet.img2: batch["img2"],
+                dispnet.img_left: batch["img_left"],
+                dispnet.img_right: batch["img_right"],
                 dispnet.disp: batch["disp"],
                 dispnet.loss_weights: loss_weights
             }
@@ -215,15 +215,15 @@ def data_map(s):
     s = tf.string_split([s], delimiter="\t")
 
     example = dict()
-    example["img1"] = load_image(s.values[0])
-    example["img2"] = load_image(s.values[1])
+    example["img_left"] = load_image(s.values[0])
+    example["img_right"] = load_image(s.values[1])
     example["disp"] = tf.py_func(load_pfm, [s.values[2]], tf.float32)
 
     return example
 
 def data_crop(d):
-    d["img1"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img1"], 384, 768), [-1, 384, 768, 3])
-    d["img2"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img2"], 384, 768), [-1,  384, 768, 3])
+    d["img_left"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img_left"], 384, 768), [-1, 384, 768, 3])
+    d["img_right"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img_right"], 384, 768), [-1,  384, 768, 3])
     d["disp"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["disp"], 384, 768), [-1, 384, 768, 1])
 
     return d

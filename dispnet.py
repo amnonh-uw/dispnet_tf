@@ -4,12 +4,12 @@ class DispNet:
     def __init__(self):
         self.kernel_regularizer = tf.contrib.layers.l2_regularizer(1.0)
 
-        self.img1 = tf.placeholder(tf.float32, shape=[None, 384, 768, 3], name="img1")
-        self.img2 = tf.placeholder(tf.float32, shape=[None, 384, 768, 3], name="img2")
+        self.img_left = tf.placeholder(tf.float32, shape=[None, 384, 768, 3], name="img_left")
+        self.img_right = tf.placeholder(tf.float32, shape=[None, 384, 768, 3], name="img_right")
         self.disp = tf.placeholder(tf.float32, shape=[None, 384, 768, 1], name="disp")
         self.loss_weights = tf.placeholder(tf.float32, shape=[6], name="loss_weights")
         self.weight_decay = tf.placeholder(tf.float32, shape=[], name='weight_decay')
-        imgs = tf.concat([self.img1, self.img2], axis=3)
+        imgs = tf.concat([self.img_left, self.img_right], axis=3)
 
         conv1 = self.conv_relu(imgs, 7, 2, 64, "conv1")
         conv2 = self.conv_relu(conv1, 5, 2, 128, "conv2")
@@ -21,6 +21,8 @@ class DispNet:
         conv5b = self.conv_relu(conv5a, 3, 1, 512, "conv5b")
         conv6a = self.conv_relu(conv5b, 3, 2, 1024, "conv6a")
         conv6b = self.conv_relu(conv6a, 3, 1, 1024, "conv6b")
+
+        self.kernel_regularizer = None
         self.pr6 = self.conv(conv6b, 3, 1, 1, name="pr6")
         self.loss6 = self.l1loss(self.pr6, self.disp, "loss6")
 
@@ -71,14 +73,14 @@ class DispNet:
         tf.summary.scalar("loss5", self.loss5)
         tf.summary.scalar("loss6", self.loss6)
 
-        tf.summary.image("img1", self.img1)
-        tf.summary.image("img2", self.img2)
-        tf.summary.image("pr1", self.pr1)
-        tf.summary.image("pr2", self.pr2)
-        tf.summary.image("pr3", self.pr3)
-        tf.summary.image("pr4", self.pr4)
-        tf.summary.image("pr5", self.pr5)
-        tf.summary.image("pr6", self.pr6)
+        tf.summary.image("img_left", self.img_left, max_outputs=1)
+        tf.summary.image("img_right", self.img_right, max_outputs=1)
+        tf.summary.image("pr1", self.pr1, max_outputs=1)
+        tf.summary.image("pr2", self.pr2, max_outputs=1)
+        tf.summary.image("pr3", self.pr3, max_outputs=1)
+        tf.summary.image("pr4", self.pr4, max_outputs=1)
+        tf.summary.image("pr5", self.pr5, max_outputs=1)
+        tf.summary.image("pr6", self.pr6, max_outputs=1)
 
     def conv(self, inputs, kernel_size, stride, channels, activation=None, name=None):
         return tf.layers.conv2d(inputs=inputs,
