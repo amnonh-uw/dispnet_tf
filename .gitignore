@@ -1,6 +1,8 @@
 summaries
 .idea
 __pycache__
+FlyingThings3D_release_TRAIN.list.small
 FlyingThings3D_release_TRAIN.list
+FlyingThings3D_release_TEST.list
 FlyingThings3D_release
 out

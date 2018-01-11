@@ -27,7 +27,7 @@ import sys
 def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     report_frequency = 500
     save_frequency = 50000
-    test_frequency = 10000
+    test_frequency = 25000
     learning_rate = 1e-4
     weight_decay = 0.0004
     train_file = "FlyingThings3D_release_TRAIN.list"
@@ -36,18 +36,20 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
 
     dispnet = DispNet()
 
-    train_dataset = tf.contrib.data.TextLineDataset(train_file)
-    test_dataset = tf.contrib.data.TextLineDataset(test_file)
-    train_dataset = train_dataset.map(data_map)
-    test_dataset = test_dataset.map(data_map)
-    train_dataset = train_dataset.map(data_augment)
-    test_dataset = test_dataset.map(data_crop)
-    train_dataset.shuffle(buffer_size=22390)
-    train_dataset.repeat(epochs)
-    train_dataset.batch(batch_size)
-    test_dataset.batch(batch_size)
+    print("creating datasets")
+    sys.stdout.flush()
+    train_dataset = (tf.contrib.data.TextLineDataset(train_file)
+                                    .repeat(epochs)
+                                    .shuffle(buffer_size=22390)
+                                    .map(data_map)
+                                    .map(data_augment)
+                                    .batch(batch_size))
 
-    # dataset augmentation needs to happen here
+    test_dataset = (tf.contrib.data.TextLineDataset(test_file) 
+                                   .map(data_map)
+                                   .map(data_crop)
+                                   .batch(batch_size))
+
     # Despite the large training set, we
     # chose to perform data augmentation to introduce more diversity
     # into the training data at almost no extra cost12. We
@@ -81,6 +83,9 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
         iterator = train_dataset.make_initializable_iterator()
         get_next = iterator.get_next()
         sess.run(iterator.initializer)
+
+        print("Training starting")
+        sys.stdout.flush()
         while True:
             try:
                 batch = sess.run(get_next)
@@ -135,6 +140,11 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
             except tf.errors.OutOfRangeError:
                 break
 
+        print("finished {} steps".foramt(step))
+        sys.stdout.flush()
+        if save_file:
+            save_network(save_file)
+
 def test(dispnet, sess, test_dataset):
     loss_weights = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
@@ -147,7 +157,7 @@ def test(dispnet, sess, test_dataset):
     while True:
         try:
             batch = sess.run(get_next)
-            batch_size = batch["img1"].shape[0]
+            batch_size = batch["img_left"].shape[0]
 
             feed_dict = {
                 dispnet.weight_decay: 0.0,
@@ -158,13 +168,13 @@ def test(dispnet, sess, test_dataset):
             }
 
             loss = sess.run([dispnet.loss], feed_dict=feed_dict)
-            total_loss += loss
+            total_loss += loss[0]
 
             step += batch_size
         except tf.errors.OutOfRangeError:
             break
 
-        print("average loss on test set is {}".format(total_loss / float(step)))
+    print("average loss on test set is {}".format(total_loss / float(step)))
 
 def load_network(name):
     print("loading {}".format(name))
@@ -222,9 +232,9 @@ def data_map(s):
     return example
 
 def data_crop(d):
-    d["img_left"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img_left"], 384, 768), [-1, 384, 768, 3])
-    d["img_right"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img_right"], 384, 768), [-1,  384, 768, 3])
-    d["disp"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["disp"], 384, 768), [-1, 384, 768, 1])
+    d["img_left"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img_left"], 384, 768), [384, 768, 3])
+    d["img_right"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img_right"], 384, 768), [ 384, 768, 3])
+    d["disp"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["disp"], 384, 768), [384, 768, 1])
 
     return d
 
@@ -232,4 +242,4 @@ def data_augment(d):
     return data_crop(d)
 
 if __name__ == '__main__':
-    train(32, 100, summary_dir="summaries")
+    train(1, 100, summary_dir="summaries")
