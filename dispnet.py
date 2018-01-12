@@ -9,6 +9,10 @@ class DispNet:
         self.disp = tf.placeholder(tf.float32, shape=[None, 384, 768, 1], name="disp")
         self.loss_weights = tf.placeholder(tf.float32, shape=[6], name="loss_weights")
         self.weight_decay = tf.placeholder(tf.float32, shape=[], name='weight_decay')
+
+        tf.summary.image("img_left", self.img_left, max_outputs=1)
+        tf.summary.image("img_right", self.img_right, max_outputs=1)
+
         imgs = tf.concat([self.img_left, self.img_right], axis=3)
 
         conv1 = self.conv_relu(imgs, 7, 2, 64, "conv1")
@@ -63,24 +67,7 @@ class DispNet:
 
         self.loss += self.weight_decay * tf.losses.get_regularization_loss()
 
-        self.add_summaries()
-
-    def add_summaries(self):
-        tf.summary.scalar("loss1", self.loss1)
-        tf.summary.scalar("loss2", self.loss2)
-        tf.summary.scalar("loss3", self.loss3)
-        tf.summary.scalar("loss4", self.loss4)
-        tf.summary.scalar("loss5", self.loss5)
-        tf.summary.scalar("loss6", self.loss6)
-
-        tf.summary.image("img_left", self.img_left, max_outputs=1)
-        tf.summary.image("img_right", self.img_right, max_outputs=1)
-        tf.summary.image("pr1", self.pr1, max_outputs=1)
-        tf.summary.image("pr2", self.pr2, max_outputs=1)
-        tf.summary.image("pr3", self.pr3, max_outputs=1)
-        tf.summary.image("pr4", self.pr4, max_outputs=1)
-        tf.summary.image("pr5", self.pr5, max_outputs=1)
-        tf.summary.image("pr6", self.pr6, max_outputs=1)
+        tf.summary.scalar("loss", self.loss)
 
     def conv(self, inputs, kernel_size, stride, channels, activation=None, name=None):
         return tf.layers.conv2d(inputs=inputs,
@@ -112,7 +99,13 @@ class DispNet:
     def l1loss(self, pred, gt, name):
         pred_shape = pred.get_shape()
         gt = tf.image.resize_images(gt, pred_shape[1:3])
-        return tf.reduce_mean(tf.abs(pred - gt), name=name)
+        loss = tf.reduce_mean(tf.abs(pred - gt), name=name)
+
+        tf.summary.image(pred.name, pred, max_outputs=1)
+        tf.summary.image(pred.name + "_gt", gt, max_outputs=1)
+        tf.summary.scalar(pred.name + "_loss", loss)
+
+        return loss
 
     def concat(self, values, axis):
         return tf.concat(values, axis)

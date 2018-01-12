@@ -71,7 +71,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
 
     with tf.Session() as sess:
         step = 0
-        steps_since_lr_udpate = None
+        steps_since_lr_update = None
         steps_since_last_report = 0
         steps_since_last_save = 0
         steps_since_last_test = 0
@@ -123,18 +123,18 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                     test(dispnet, sess, test_dataset)
 
                 if step >= 400000:
-                    if steps_since_lr_udpate == None:
+                    if steps_since_lr_update == None:
                         steps_since_lr_update = step - 400000
                         learning_rate /= 2
-                        print("new learning rate {}".format(learning_rate))
+                        print("step {} new learning rate {}".format(step, learning_rate))
                         sys.stdout.flush()
                     else:
                         steps_since_lr_update += batch_size
 
-                        if steps_since_lr_udpate >= 200000:
+                        if steps_since_lr_update >= 200000:
                             steps_since_lr_update -= 200000
                             learning_rate /= 2
-                            print("new learning rate {}".format(learning_rate))
+                            print("step {} new learning rate {}".format(step, learning_rate))
                             sys.stdout.flush()
 
             except tf.errors.OutOfRangeError:
@@ -152,7 +152,7 @@ def test(dispnet, sess, test_dataset):
     get_next = iterator.get_next()
     sess.run(iterator.initializer)
     total_loss = 0.0
-    step = 0
+    count = 0
 
     while True:
         try:
@@ -170,11 +170,11 @@ def test(dispnet, sess, test_dataset):
             loss = sess.run([dispnet.loss], feed_dict=feed_dict)
             total_loss += loss[0]
 
-            step += batch_size
+            count += 1
         except tf.errors.OutOfRangeError:
             break
 
-    print("average loss on test set is {}".format(total_loss / float(step)))
+    print("average loss on test set is {}".format(total_loss / float(count)))
 
 def load_network(name):
     print("loading {}".format(name))
@@ -217,6 +217,7 @@ def load_pfm(name):
             endian = '>' # big-endian
 
         data = np.fromfile(file, endian + 'f')
+        data = np.where(np.isnan(data), data, 32767.0)
 
     shape = (height, width, 1)
     return np.reshape(data, shape) * scale
@@ -242,4 +243,4 @@ def data_augment(d):
     return data_crop(d)
 
 if __name__ == '__main__':
-    train(1, 100, summary_dir="summaries")
+    train(1, 100, summary_dir="summaries", save_file="save")
