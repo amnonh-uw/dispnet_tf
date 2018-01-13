@@ -217,10 +217,16 @@ def load_pfm(name):
             endian = '>' # big-endian
 
         data = np.fromfile(file, endian + 'f')
-        data = np.where(np.isnan(data), data, 32767.0)
+
+    nans = np.count_nonzero(np.isnan(data))
+    if nans != 0:
+        print("load_pfm: warning {} nans encountered".format(nan))
 
     shape = (height, width, 1)
-    return np.reshape(data, shape) * scale
+    data =  np.reshape(data, shape) * scale
+    data = np.flipud(data)
+
+    return data
 
 left_channel_total = tf.get_variable("left_channel_mean", shape=[3], dtype=tf.float32, initializer = tf.zeros_initializer)
 right_channel_total = tf.get_variable("right_channel_mean", shape=[3], dtype=tf.float32, initializer = tf.zeros_initializer)
@@ -275,4 +281,4 @@ def data_augment(d):
     return data_crop(d)
 
 if __name__ == '__main__':
-    train(1, 100, summary_dir="summaries", save_file="save")
+    train(32, 1000, summary_dir="summaries_inst2", save_file="save_inst2")

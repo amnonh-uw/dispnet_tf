@@ -70,28 +70,35 @@ class DispNet:
         tf.summary.scalar("loss", self.loss)
 
     def conv(self, inputs, kernel_size, stride, channels, activation=None, name=None):
-        return tf.layers.conv2d(inputs=inputs,
-                                filters=channels,
-                                kernel_size=(kernel_size, kernel_size),
-                                kernel_regularizer=self.kernel_regularizer,
-                                strides=(stride, stride),
-                                padding='same',
-                                activation=activation,
-                                name=name)
+        out = tf.layers.conv2d(inputs=inputs,
+                               filters=channels,
+                               kernel_size=(kernel_size, kernel_size),
+                               kernel_regularizer=self.kernel_regularizer,
+                               strides=(stride, stride),
+                               padding='same',
+                               activation=activation,
+                               name=name)
+
+        if name:
+            out = tf.identity(out, name=name)
+        return out
 
 
     def conv_relu(self, inputs, kernel_size, stride, channels, name):
         return self.conv(inputs, kernel_size, stride, channels, activation=tf.nn.relu, name=name)
 
     def upconv(self, input, kernel_size, stride, channels, activation=None, name=None):
-        return tf.layers.conv2d_transpose(inputs=input,
-                                          filters=channels,
-                                          kernel_size=(kernel_size, kernel_size),
-                                          kernel_regularizer=self.kernel_regularizer,
-                                          strides=(stride, stride),
-                                          padding='same',
-                                          activation=activation,
-                                          name=name)
+        out = tf.layers.conv2d_transpose(inputs=input,
+                                         filters=channels,
+                                         kernel_size=(kernel_size, kernel_size),
+                                         kernel_regularizer=self.kernel_regularizer,
+                                         strides=(stride, stride),
+                                         padding='same',
+                                         activation=activation,
+                                         name=name)
+        if name:
+            out = tf.identity(out, name=name)
+        return out
 
     def upconv_relu(self, inputs, kernel_size, stride, channels, name=None):
         return self.upconv(inputs, kernel_size, stride, channels, activation=tf.nn.relu, name=name)
