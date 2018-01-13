@@ -6,7 +6,6 @@ import re
 import os
 import sys
 
-
 # We
 # set β1 = 0.9 and β2 = 0.999 as in Kingma et al. [14]. As
 # learning rate we used λ = 1e − 4 and divided it by 2 every
@@ -102,6 +101,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
 
                 _, loss, summary = sess.run([train_op, dispnet.loss, summaries_op], feed_dict=feed_dict)
 
+                loss /= np.sum(loss_weights)
                 step += batch_size
                 summary_writer.add_summary(summary, step)
 
@@ -222,12 +222,44 @@ def load_pfm(name):
     shape = (height, width, 1)
     return np.reshape(data, shape) * scale
 
+left_channel_total = tf.get_variable("left_channel_mean", shape=[3], dtype=tf.float32, initializer = tf.zeros_initializer)
+right_channel_total = tf.get_variable("right_channel_mean", shape=[3], dtype=tf.float32, initializer = tf.zeros_initializer)
+mean_count = tf.get_variable("mean_count", shape=[], dtype=tf.int32, initializer = tf.zeros_initializer)
+
+def mean_shift(img, total):
+    return img - total / mean_count
+
+def mean_update_and_shift(img, total):
+    return mean_shift(img, total.assign(total + tf.reduce_mean(img, axis=[0,1])))
+
 def data_map(s):
     s = tf.string_split([s], delimiter="\t")
 
+    img_left = load_image(s.values[0])
+    img_right = load_image(s.values[1])
+
+    global mean_count
+    mean_count = tf.clip_by_value(mean_count + 1, 0, 1000)
+
+    img_left = tf.cond(mean_count <= 1000,
+                       true_fn = lambda: mean_update_and_shift(img_left, left_channel_total),
+                       false_fn = lambda: mean_shift(img_left, left_channel_total))
+
+    img_right = tf.cond(mean_count <= 1000,
+                        true_fn=lambda: mean_update_and_shift(img_right, right_channel_total),
+                        false_fn=lambda: mean_shift(img_right, right_channel_total))
+
+    global left_channel_total
+    global right_channel_total
+    mean_count = tf.Print(mean_count, mean_count, "mean_count")
+    left_channel_total = tf.Print(left_channel_total, left_channel_total /  mean_count, "left_mean")
+    right_channel_total = tf.Print(right_channel_total, right_channel_total /  mean_count, "right_mean")
+    img_left = tf.Print(img_left, tf.reduce_mean(img_left, axis=[0,1]), "img left mean")
+    img_left = tf.Print(img_right, tf.reduce_mean(img_right, axis=[0,1]), "img right mean")
+
     example = dict()
-    example["img_left"] = load_image(s.values[0])
-    example["img_right"] = load_image(s.values[1])
+    example["img_left"] = img_left
+    example["img_right"] = img_right
     example["disp"] = tf.py_func(load_pfm, [s.values[2]], tf.float32)
 
     return example
