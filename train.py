@@ -22,7 +22,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     train_file = "FlyingThings3D_release_TRAIN.list"
     test_file = "FlyingThings3D_release_TEST.list"
 
-    loss_weights_update_steps = [50, 000, 100000, 150000, 250000, 350000, 4500000]
+    loss_weights_update_steps = [50000, 100000, 150000, 250000, 350000, 4500000]
     loss_weights_index = 0
     loss_weights_updates = [[0, 0, 0, 0, 0.5, 1.0],
                             [0, 0, 0, 0.2, 1., 0.5],
