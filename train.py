@@ -10,18 +10,6 @@ import sys
 # set β1 = 0.9 and β2 = 0.999 as in Kingma et al. [14]. As
 # learning rate we used λ = 1e − 4 and divided it by 2 every
 # 200 000 iterations starting from iteration 400 000.
-# Due to the depth of the networks and the direct connections
-# between contracting and expanding layers (see Table
-# 2), lower layers get mixed gradients if all six losses are
-# active. We found that using a loss weight schedule can be
-# beneficial: we start training with a loss weight of 1 assigned
-# to the lowest resolution loss loss6 and a weight of 0 for
-# all other losses (that is, all other losses are switched off).
-# During training, we progressively increase the weights of
-# losses with higher resolution and deactivate the low resolution
-# losses. This enables the network to first learn a coarse
-# representation and then proceed with finer resolutions without
-# losses constraining intermediate features
 
 def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     report_frequency = 500
@@ -31,7 +19,19 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     weight_decay = 0.0004
     train_file = "FlyingThings3D_release_TRAIN.list"
     test_file = "FlyingThings3D_release_TEST.list"
-    loss_weights = np.array([1.0, 0.2, 0.2, 0.2, 0.2, 0.2], dtype=np.float32)
+
+    loss_weights_update_steps = [50,000, 100000, 150000, 250000, 350000, 4500000]
+    loss_weights_index = 0
+    loss_weights_updates = [[0, 0, 0, 0, 0, 1.0],                                          
+                            [0, 0, 0, 0.2, 1., 0.5],                                       
+                            [0, 0, 0.2, 1, 0.5, 0],                                        
+                            [0, 0.2, 1., 0.5, 0, 0],                                       
+                            [0.2, 1, 0.5, 0, 0, 0],                                        
+                            [1.0, 0.5, 0, 0, 0, 0],                                        
+                            [1.0, 0, 0, 0, 0, 0]]                                          
+
+    loss_weights = np.array(loss_weights_updates[0], dtype=np.float32)
+    print("weights update: {}".format(loss_weights))
 
     dispnet = DispNet()
 
@@ -122,6 +122,13 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                     steps_since_last_test -= test_frequency
                     test(dispnet, sess, test_dataset)
 
+                if loss_weights_index < len(loss_weights_update_steps):
+                    if step > loss_weights_update_steps[loss_weights_index]:
+                        loss_weights_index += 1
+                        loss_weights = np.array(loss_weights_updates[loss_weights_index], dtype=np.float32)
+                        print("weights update: {}".format(loss_weights))
+
+
                 if step >= 400000:
                     if steps_since_lr_update == None:
                         steps_since_lr_update = step - 400000
@@ -192,7 +199,13 @@ def save_network(name):
 def load_image(file):
     image_string = tf.read_file(file)
     image_decoded = tf.image.decode_image(image_string, channels=3)
+    
+    img_mean = tf.constant([120.16955729, 116.97606771, 106.57792824], dtype=tf.float32) / 255.0
+    img_mean = tf.reshape(img_mean, [1, 1, 3])
+
     image = tf.image.convert_image_dtype(image_decoded, dtype=tf.float32)
+    image -= img_mean
+    
     return image
 
 def load_pfm(name):
@@ -231,12 +244,9 @@ def load_pfm(name):
 def data_map(s):
     s = tf.string_split([s], delimiter="\t")
 
-    img_left = load_image(s.values[0]) - [120.16955729, 116.97606771, 106.57792824]
-    img_right = load_image(s.values[1]) - [120.16955729, 116.97606771, 106.57792824]
-
     example = dict()
-    example["img_left"] = img_left
-    example["img_right"] = img_right
+    example["img_left"] = load_image(s.values[0])
+    example["img_right"] = load_image(s.values[1])
     example["disp"] = tf.py_func(load_pfm, [s.values[2]], tf.float32)
 
     return example
@@ -252,4 +262,4 @@ def data_augment(d):
     return data_crop(d)
 
 if __name__ == '__main__':
-    train(32, 1000, summary_dir="summaries_inst2", save_file="save_inst2")
+    train(32, 1000, summary_dir="summaries", save_file="save")
