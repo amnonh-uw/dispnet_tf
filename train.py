@@ -275,42 +275,32 @@ def data_crop(d):
 
     return d
 
-def gen_spatial_params(w = None, h = None, dw = None, dh = None, zoom_h = None):
-    # translate
-    dh = tf.random_uniform([], minval=-0.4, maxval=+0.4, dtype=tf.float32) * 384
-    dw = tf.random_uniform([], minval=-0.4, maxval=+0.4, dtype=tf.float32) * 768
-
+def gen_spatial_params(w, h):
     # squeeze
     # zoom_h = tf.exp(tf.random_uniform([], minval=-0.3, maxval=+0.3))
     zoom_h = tf.constant(1., dtype=tf.float32)
+    new_h = tf.cast(tf.round(h * zoom_h), dtype=tf.float32)
 
-    dh = tf.Print(dh, [dw, dh], "dw dh")
+    # translate
+    spare_w = (w - 768) / 2
+    spare_h = (new_h - 384) / 2
 
-    return w, h , dw, dh, zoom_h
+    dw = tf.random_uniform([], minval=-spare_w, maxval=spare_w, dtype=tf.int32)
+    dh = tf.random_uniform([], minval=-spare_h, maxval=spare_h, dtype=tf.int32)
 
-def invalid_spatial_params(w, h, dw, dh, zoom_h):
-    # params are invalid if we don't have enough of the image to cover
-    need_h = tf.round(h * zoom_h) + tf.abs(dh)
-    need_w = w + tf.abs(dw)
+    o_w = spare_w + dw
+    o_h = spare_h + dh
 
-    need_h = tf.Print(need_h, [need_w, need_h], "need_h, need_w")
+    o_h = tf.Print(o_h, [o_w, o_h, new_h], "o_w o_h new_h")
 
-    valid_h = tf.greater_equal(h, need_h)
-    valid_w = tf.greater_equal(w, need_w)
-    return tf.logical_and(valid_h, valid_w)
+    return  o_w, o_h, new_h
 
-def spatial_augment_img(im, h, w, dw, dh, zoom_h):
-    # we need to crop to a different h, so we could later squeeze
-    new_h = tf.round(h * zoom_h)
+def spatial_augment_img(im, w, h, o_w, o_h, new_h):
+    # squeeze
+    im = tf.image.resize_bilinear(im, [w, new_h])
 
     # crop
-    o_h = (new_h - 384) / 2 + dh
-    o_w = (w - 768) / 2 + dw
-
-    im = tf.image.crop_to_bounding_box(im, o_h, o_w, new_h, 768)
-
-    # squeeze
-    return tf.image.resize_bilinear(im, [384, 468])
+    return tf.image.crop_to_bounding_box(im, o_h, o_w, 384, 768)
 
 def data_augment(d):
     shape = tf.shape(d["img_left"])
@@ -318,18 +308,11 @@ def data_augment(d):
     w = tf.cast(shape[1], dtype=tf.float32)
     h = tf.Print(h, [h, w], "h w")
 
-    _, _, dw, dh, zoom_h = gen_spatial_params()
+    o_w, o_h, new_h = gen_spatial_params(w,h)
 
-    tf.while_loop(invalid_spatial_params,
-                  gen_spatial_params,
-                  [w, h, dw, dh, zoom_h],
-                  parallel_iterations=1,
-                  back_prop=False)
-
-    d["img_left"] = spatial_augment_img(d["img_left"], h, w, dw, dh, zoom_h)
-    d["img_right"] = spatial_augment_img(d["img_right"], h, w, dw, dh, zoom_h)
-    d["disp"] = spatial_augment_img(d["disp"], h, w, dw, dh, zoom_h)
-
+    d["img_left"] = spatial_augment_img(d["img_left"], w, h, o_w, o_h, new_h)
+    d["img_right"] = spatial_augment_img(d["img_right"],  w, h, o_w, o_h, new_h)
+    d["disp"] = spatial_augment_img(d["disp"],  w, h, o_w, o_h, new_h)
 
     return data_crop(d)
 
@@ -396,4 +379,4 @@ def time_fn(fn, *args, **kwargs):
 
 
 if __name__ == '__main__':
-    train(32, 1000, summary_dir="summaries", save_file="save")
+    train(32, 1000, summary_dir="summaries_2", save_file="save_2")
