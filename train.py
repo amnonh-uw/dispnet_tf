@@ -76,7 +76,8 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
         sys.stdout.flush()
         while True:
             try:
-                batch = time_fn(sess.run, get_next)
+                # batch = time_fn(sess.run, get_next)
+                batch = sess.run(get_next)
                 batch_size = batch["img_left"].shape[0]
 
                 feed_dict = {
@@ -145,9 +146,9 @@ def create_train_dataset(file, epochs, batch_size):
     train_dataset = (tf.contrib.data.TextLineDataset(file)
                      .repeat(epochs)
                      .shuffle(buffer_size=22390)
-                     .map(data_map)
-                     .map(data_augment)
-                     .prefetch(batch_size * 2)
+                     .map(data_map, num_parallel_calls=2)
+                     .map(data_augment, num_parallel_calls=2)
+                     .prefetch(batch_size * 4)
                      .batch(batch_size))
     return train_dataset
 
@@ -323,7 +324,7 @@ def gen_color_params():
     saturation_factor = tf.random_uniform([], minval=0.5, maxval=1.5)
     hue_delta = tf.random_uniform([], minval=-0.2, maxval=0.2)
     contrast_factor = tf.random_uniform([], minval=0.5, maxval=1.5)
-    color_ordering = tf.random_uniform([], minval=0, maxval=4, dtype=tf.int32)
+    color_ordering = tf.random_uniform([], minval=0, maxval=3, dtype=tf.int32)
 
     # change distort color to fit
 
@@ -348,21 +349,35 @@ def data_augment(d):
     brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering = gen_color_params()
 
     d["img_left"] = color_augment_img(d["img_left"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
-    d["img_right"] = color_augment_img(d["img_left"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
+    d["img_right"] = color_augment_img(d["img_right"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
 
     return d
 
 def color_augment_img(img, brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering):
-    img = tf.case({
-            tf.equal(color_ordering, 0):
-                lambda: distort_color0(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
-            tf.equal(color_ordering, 1):
-                lambda: distort_color1(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
-            tf.equal(color_ordering, 2):
-                lambda: distort_color2(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
-            tf.equal(color_ordering, 3):
-                lambda: distort_color3(img, brightness_delta, saturation_factor, hue_delta, contrast_factor)
-            }, exclusive=True)
+    img = tf.cond( tf.equal(color_ordering, 0),
+                true_fn=lambda: distort_color0(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+                false_fn=lambda: img)
+    img = tf.cond( tf.equal(color_ordering, 1),
+                true_fn=lambda: distort_color1(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+                false_fn=lambda: img)
+    img = tf.cond( tf.equal(color_ordering, 2),
+                true_fn=lambda: distort_color2(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+                false_fn=lambda: img)
+    img = tf.cond( tf.equal(color_ordering, 3),
+                true_fn=lambda: distort_color3(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+                false_fn=lambda: img)
+
+    # tf.case is broken on tf 1.4
+    # img = tf.case({
+    #        tf.equal(color_ordering, 0):
+    #            lambda: distort_color0(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+    #        tf.equal(color_ordering, 1):
+    #            lambda: distort_color1(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+    #        tf.equal(color_ordering, 2):
+    #            lambda: distort_color2(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+    #        tf.equal(color_ordering, 3):
+    #            lambda: distort_color3(img, brightness_delta, saturation_factor, hue_delta, contrast_factor)
+    #        }, exclusive=True)
 
     return img
 
@@ -403,11 +418,13 @@ def distort_color3(image, brightness_delta, saturation_factor, hue_delta, contra
     return tf.clip_by_value(image, 0.0, 1.0)
 
 def time_fn(fn, *args, **kwargs):
-    start = time.clock()
+    start_clock = time.clock()
+    start_time = time.time()
     results = fn(*args, **kwargs)
-    end = time.clock()
+    end_clock = time.clock()
+    end_time = time.time()
     fn_name = fn.__module__ + "." + fn.__name__
-    print(fn_name + ": " + str(end - start) + "s")
+    print(fn_name + ": " + str(end_clock - start_clock) + " clocks " + str(end_time - start_time) + " secs")
     return results
 
 
