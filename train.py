@@ -304,8 +304,8 @@ def spatial_augment_img(im, w, h, o_w, o_h, new_h):
 
 def data_augment(d):
     shape = tf.shape(d["img_left"])
-    h = tf.cast(shape[0], dtype=tf.float32)
-    w = tf.cast(shape[1], dtype=tf.float32)
+    h = shape[0]
+    w = shape[1]
     h = tf.Print(h, [h, w], "h w")
 
     o_w, o_h, new_h = gen_spatial_params(w,h)
