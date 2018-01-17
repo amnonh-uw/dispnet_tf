@@ -284,11 +284,19 @@ def gen_spatial_params(w = None, h = None, dw = None, dh = None, zoom_h = None):
     # zoom_h = tf.exp(tf.random_uniform([], minval=-0.3, maxval=+0.3))
     zoom_h = tf.constant(1., dtype=tf.float32)
 
+    dh = tf.Print(dh, [dw, dh], "dw dh")
+
     return w, h , dw, dh, zoom_h
 
 def invalid_spatial_params(w, h, dw, dh, zoom_h):
-    valid_h = tf.greater_equal(tf.round(h * zoom_h) - tf.abs(dh), 384)
-    valid_w = tf.greater_equal(w - tf.abs(dw), 768)
+    # params are invalid if we don't have enough of the image to cover
+    need_h = tf.round(h * zoom_h) + tf.abs(dh)
+    need_w = w + tf.abs(dw)
+
+    need_h = tf.Print(need_h, [need_w, need_h], "need_h, need_w")
+
+    valid_h = tf.greater_equal(h, need_h)
+    valid_w = tf.greater_equal(w, need_w)
     return tf.logical_and(valid_h, valid_w)
 
 def spatial_augment_img(im, h, w, dw, dh, zoom_h):
@@ -305,7 +313,11 @@ def spatial_augment_img(im, h, w, dw, dh, zoom_h):
     return tf.image.resize_bilinear(im, [384, 468])
 
 def data_augment(d):
-    h, w, _ = tf.shape_n(d["img_left"])
+    shape = tf.shape(d["img_left"])
+    h = tf.cast(shape[0], dtype=tf.float32)
+    w = tf.cast(shape[1], dtype=tf.float32)
+    h = tf.Print(h, [h, w], "h w")
+
     _, _, dw, dh, zoom_h = gen_spatial_params()
 
     tf.while_loop(invalid_spatial_params,
