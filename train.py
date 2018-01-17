@@ -7,6 +7,10 @@ import os
 import sys
 import time
 
+dataset_w = 960
+dataset_h = 540
+dispnet_w = 768
+dispnet_h = 384
 
 # We
 # set β1 = 0.9 and β2 = 0.999 as in Kingma et al. [14]. As
@@ -40,7 +44,11 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     print("creating datasets")
     sys.stdout.flush()
     train_dataset = create_train_dataset(train_file, epochs, batch_size)
+    print("train_dataset done")
+    sys.stdout.flush()
     test_dataset = create_test_dataset(test_file, batch_size)
+    print("test_dataset done")
+    sys.stdout.flush()
 
     adam_learning_rate = tf.placeholder(tf.float32, [], name='learning_rate')
     train_op = tf.train.AdamOptimizer(learning_rate=adam_learning_rate).minimize(dispnet.loss)
@@ -69,7 +77,6 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
         while True:
             try:
                 batch = time_fn(sess.run, get_next)
-
                 batch_size = batch["img_left"].shape[0]
 
                 feed_dict = {
@@ -140,6 +147,7 @@ def create_train_dataset(file, epochs, batch_size):
                      .shuffle(buffer_size=22390)
                      .map(data_map)
                      .map(data_augment)
+                     .prefetch(batch_size * 2)
                      .batch(batch_size))
     return train_dataset
 
@@ -147,7 +155,7 @@ def create_train_dataset(file, epochs, batch_size):
 def create_test_dataset(file, batch_size):
     test_dataset = (tf.contrib.data.TextLineDataset(file)
                     .map(data_map)
-                    .map(data_crop)
+                    .map(center_crop)
                     .batch(batch_size))
     return test_dataset
 
@@ -207,6 +215,7 @@ def load_image(file):
 
     image = tf.image.convert_image_dtype(image_decoded, dtype=tf.float32)
     image -= img_mean
+    image = tf.reshape(image, [dataset_h, dataset_w, 3], name="load_image")
 
     return image
 
@@ -244,14 +253,14 @@ def load_pfm(name):
 
     return data
 
-
 def data_map(s):
     s = tf.string_split([s], delimiter="\t")
 
     example = dict()
     example["img_left"] = load_image(s.values[0])
     example["img_right"] = load_image(s.values[1])
-    example["disp"] = tf.py_func(load_pfm, [s.values[2]], tf.float32)
+    disp = tf.py_func(load_pfm, [s.values[2]], tf.float32)
+    example["disp"] = tf.reshape(disp, [dataset_h, dataset_w, 1], name="load_pfm")
 
     return example
 
@@ -267,23 +276,30 @@ def data_map(s):
     # would lead to negnegative disparities or shifting infinity towards
     # the camera.
 
+def center_crop_im(im):
+    im = tf.image.resize_image_with_crop_or_pad(im, dispnet_h, dispnet_w)
+    return tf.reshape(im, [dispnet_h, dispnet_w, 3], name="center_crop_im")
 
-def data_crop(d):
-    d["img_left"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img_left"], 384, 768), [384, 768, 3])
-    d["img_right"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["img_right"], 384, 768), [384, 768, 3])
-    d["disp"] = tf.reshape(tf.image.resize_image_with_crop_or_pad(d["disp"], 384, 768), [384, 768, 1])
+def center_crop_disp(im):
+    im = tf.image.resize_image_with_crop_or_pad(im, dispnet_h, dispnet_w)
+    return tf.reshape(im, [dispnet_h, dispnet_w, 1], name="center_crop_disp")
+
+def center_crop(d):
+    d["img_left"] = center_crop_im(d["img_left"])
+    d["img_right"] = center_crop_im(d["img_right"])
+    d["disp"] = center_crop_disp(d["disp"])
 
     return d
 
 def gen_spatial_params(w, h):
     # squeeze
-    # zoom_h = tf.exp(tf.random_uniform([], minval=-0.3, maxval=+0.3))
-    zoom_h = tf.constant(1., dtype=tf.float32)
-    new_h = tf.cast(tf.round(h * zoom_h), dtype=tf.float32)
+    zoom_h = tf.exp(tf.random_uniform([], minval=-0.3, maxval=+0.3))
+    # zoom_h = tf.constant(1., dtype=tf.float32)
+    new_h = tf.to_int32(tf.round(tf.to_float(h) * zoom_h))
 
     # translate
-    spare_w = (w - 768) / 2
-    spare_h = (new_h - 384) / 2
+    spare_w = tf.to_int32((w - dispnet_w) / 2)
+    spare_h = tf.to_int32((new_h - dispnet_h) / 2)
 
     dw = tf.random_uniform([], minval=-spare_w, maxval=spare_w, dtype=tf.int32)
     dh = tf.random_uniform([], minval=-spare_h, maxval=spare_h, dtype=tf.int32)
@@ -291,22 +307,21 @@ def gen_spatial_params(w, h):
     o_w = spare_w + dw
     o_h = spare_h + dh
 
-    o_h = tf.Print(o_h, [o_w, o_h, new_h], "o_w o_h new_h")
-
     return  o_w, o_h, new_h
 
 def spatial_augment_img(im, w, h, o_w, o_h, new_h):
     # squeeze
-    im = tf.image.resize_bilinear(im, [w, new_h])
+    im = tf.image.resize_images(im, [new_h, w])
 
     # crop
-    return tf.image.crop_to_bounding_box(im, o_h, o_w, 384, 768)
+    im = tf.image.crop_to_bounding_box(im, o_h, o_w, dispnet_h, dispnet_w)
+
+    return im
 
 def data_augment(d):
     shape = tf.shape(d["img_left"])
     h = shape[0]
     w = shape[1]
-    h = tf.Print(h, [h, w], "h w")
 
     o_w, o_h, new_h = gen_spatial_params(w,h)
 
@@ -314,7 +329,7 @@ def data_augment(d):
     d["img_right"] = spatial_augment_img(d["img_right"],  w, h, o_w, o_h, new_h)
     d["disp"] = spatial_augment_img(d["disp"],  w, h, o_w, o_h, new_h)
 
-    return data_crop(d)
+    return d
 
 
 def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
