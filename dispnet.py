@@ -28,43 +28,39 @@ class DispNet:
 
         self.kernel_regularizer = None
         self.pr6 = self.conv(conv6b, 3, 1, 1, name="pr6")
-        self.loss6 = self.l1loss(self.pr6, self.disp, "loss6")
+        self.loss6 = self.l1loss(self.pr6, self.disp, self.loss_weights[5], "loss6")
 
         upconv5 = self.upconv_relu(conv6b, 4, 2, 512, "upconv5")
         pr6_up = self.upconv(self.pr6, 4, 2, 1, name="pr6_up")
         iconv5 = self.upconv_relu(self.concat([upconv5, pr6_up, conv5b], axis=3), 3, 1, 512, "iconv5")
         self.pr5 = self.conv(iconv5, 3, 1, 1, name="pr5")
-        self.loss5 = self.l1loss(self.pr5, self.disp, "loss5")
+        self.loss5 = self.l1loss(self.pr5, self.disp, self.loss_weights[4], "loss5")
 
         upconv4 = self.upconv_relu(iconv5, 4, 2, 256, "upconv4")
         pr5_up = self.upconv(self.pr5, 4, 2, 1, name="pr5_up")
         iconv4 = self.upconv_relu(self.concat([upconv4, pr5_up, conv4b], axis=3), 3, 1, 256, "iconv4")
         self.pr4 = self.conv(iconv4, 3, 1, 1, name="pr4")
-        self.loss4 = self.l1loss(self.pr4, self.disp, "loss4")
+        self.loss4 = self.l1loss(self.pr4, self.disp, self.loss_weights[3], "loss4")
 
         upconv3 = self.upconv_relu(iconv4, 4, 2, 128, "upconv3")
         pr4_up = self.upconv(self.pr4, 4, 2, 1, name="pr4_up")
         iconv3 = self.upconv_relu(self.concat([upconv3, pr4_up, conv3b], axis=3), 3, 1, 128, "iconv3")
         self.pr3 = self.conv(iconv3, 3, 1, 1, name="pr3")
-        self.loss3 = self.l1loss(self.pr3, self.disp, "loss3")
+        self.loss3 = self.l1loss(self.pr3, self.disp, self.loss_weights[2], "loss3")
 
         upconv2 = self.upconv_relu(iconv3, 4, 2, 64, "upconv2")
         pr3_up = self.upconv(self.pr3, 4, 2, 1, name="pr3_up")
         iconv2 = self.upconv_relu(self.concat([upconv2, pr3_up, conv2], axis=3), 3, 1, 64, "iconv2")
         self.pr2 = self.conv(iconv2, 3, 1, 1, name="pr2")
-        self.loss2 = self.l1loss(self.pr2, self.disp, "loss2")
+        self.loss2 = self.l1loss(self.pr2, self.disp, self.loss_weights[1], "loss2")
 
         upconv1 = self.upconv_relu(iconv2, 4, 2, 32, "upconv1")
         pr2_up = self.upconv(self.pr2, 4, 2, 1, name="pr2_up")
         iconv1 = self.upconv_relu(self.concat([upconv1, pr2_up, conv1], axis=3), 3, 1, 32, "iconv1")
         self.pr1 = self.conv(iconv1, 3, 1, 1, name="pr1")
-        self.loss1 = self.l1loss(self.pr1, self.disp, "loss1")
+        self.loss1 = self.l1loss(self.pr1, self.disp, self.loss_weights[0], "loss1")
 
-        self.loss = self.loss1 * self.loss_weights[0]
-
-        for w, l in zip(range(1,6),[self.loss2, self.loss3, self.loss4, self.loss5, self.loss6]):
-            self.loss += l * self.loss_weights[w]
-
+        self.loss = self.loss1 + self.loss2 + self.loss3 + self.loss4 + self.loss5 + self.loss6
         self.loss += self.weight_decay * tf.losses.get_regularization_loss()
 
         tf.summary.scalar("loss", self.loss)
@@ -103,10 +99,10 @@ class DispNet:
     def upconv_relu(self, inputs, kernel_size, stride, channels, name=None):
         return self.upconv(inputs, kernel_size, stride, channels, activation=tf.nn.relu, name=name)
 
-    def l1loss(self, pred, gt, name):
+    def l1loss(self, pred, gt, weight, name):
         pred_shape = pred.get_shape()
         gt = tf.image.resize_images(gt, pred_shape[1:3])
-        loss = tf.reduce_mean(tf.abs(pred - gt), name=name)
+        loss = tf.multiply(weight, tf.reduce_mean(tf.abs(pred - gt)), name=name)
 
         tf.summary.image(pred.name, pred, max_outputs=1)
         tf.summary.image(pred.name + "_gt", gt, max_outputs=1)
