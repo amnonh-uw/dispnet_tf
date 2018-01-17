@@ -294,7 +294,6 @@ def center_crop(d):
 def gen_spatial_params(w, h):
     # squeeze
     zoom_h = tf.exp(tf.random_uniform([], minval=-0.3, maxval=+0.3))
-    # zoom_h = tf.constant(1., dtype=tf.float32)
     new_h = tf.to_int32(tf.round(tf.to_float(h) * zoom_h))
 
     # translate
@@ -318,10 +317,25 @@ def spatial_augment_img(im, w, h, o_w, o_h, new_h):
 
     return im
 
+def gen_color_params():
+    brightness_max_delta = 32. / 255.
+    brightness_delta = tf.random_uniform([], minval=brightness_max_delta, maxval=brightness_max_delta)
+    saturation_factor = tf.random_uniform([], minval=0.5, maxval=1.5)
+    hue_delta = tf.random_uniform([], minval=-0.2, maxval=0.2)
+    contrast_factor = tf.random_uniform([], minval=0.5, maxval=1.5)
+    color_ordering = tf.random_uniform([], minval=0, maxval=4, dtype=tf.int32)
+
+    # change distort color to fit
+
+    return brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering
+
+
 def data_augment(d):
     shape = tf.shape(d["img_left"])
     h = shape[0]
     w = shape[1]
+
+    # spatial augmentation
 
     o_w, o_h, new_h = gen_spatial_params(w,h)
 
@@ -329,60 +343,64 @@ def data_augment(d):
     d["img_right"] = spatial_augment_img(d["img_right"],  w, h, o_w, o_h, new_h)
     d["disp"] = spatial_augment_img(d["disp"],  w, h, o_w, o_h, new_h)
 
+    # color augmentation
+
+    brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering = gen_color_params()
+
+    d["img_left"] = color_augment_img(d["img_left"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
+    d["img_right"] = color_augment_img(d["img_left"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
+
     return d
 
+def color_augment_img(img, brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering):
+    img = tf.case({
+            tf.equal(color_ordering, 0):
+                lambda: distort_color0(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+            tf.equal(color_ordering, 1):
+                lambda: distort_color1(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+            tf.equal(color_ordering, 2):
+                lambda: distort_color2(img, brightness_delta, saturation_factor, hue_delta, contrast_factor),
+            tf.equal(color_ordering, 3):
+                lambda: distort_color3(img, brightness_delta, saturation_factor, hue_delta, contrast_factor)
+            }, exclusive=True)
 
-def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
-    # Distort the color of a Tensor image.
-    #     Each color distortion is non-commutative and thus ordering of the color ops
-    #     matters. Ideally we would randomly permute the ordering of the color ops.
-    #     Rather then adding that level of complication, we select a distinct ordering
-    #     of color ops for each preprocessing thread.
-    #     Args:
-    #         image: 3-D Tensor containing single image in [0, 1].
-    #         color_ordering: Python int, a type of distortion (valid values: 0-3).
-    #         fast_mode: Avoids slower ops (random_hue and random_contrast)
-    #         scope: Optional scope for name_scope.
-    # Returns:
-    #     3-D Tensor color-distorted image on range [0, 1]
-    # Raises:
-    #     ValueError: if color_ordering not in [0, 3]
+    return img
 
-  with tf.name_scope(scope, 'distort_color', [image]):
-    if fast_mode:
-      if color_ordering == 0:
-        image = tf.image.random_brightness(image, max_delta=32. / 255.)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-      else:
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        image = tf.image.random_brightness(image, max_delta=32. / 255.)
-    else:
-      if color_ordering == 0:
-        image = tf.image.random_brightness(image, max_delta=32. / 255.)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        image = tf.image.random_hue(image, max_delta=0.2)
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-      elif color_ordering == 1:
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        image = tf.image.random_brightness(image, max_delta=32. / 255.)
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-        image = tf.image.random_hue(image, max_delta=0.2)
-      elif color_ordering == 2:
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-        image = tf.image.random_hue(image, max_delta=0.2)
-        image = tf.image.random_brightness(image, max_delta=32. / 255.)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-      elif color_ordering == 3:
-        image = tf.image.random_hue(image, max_delta=0.2)
-        image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
-        image = tf.image.random_contrast(image, lower=0.5, upper=1.5)
-        image = tf.image.random_brightness(image, max_delta=32. / 255.)
-      else:
-        raise ValueError('color_ordering must be in [0, 3]')
+def distort_color0(image, brightness_delta, saturation_factor, hue_delta, contrast_factor):
+    image = tf.image.adjust_brightness(image, brightness_delta)
+    image = tf.image.adjust_saturation(image, saturation_factor)
+    image = tf.image.adjust_hue(image, hue_delta)
+    image = tf.image.adjust_contrast(image, contrast_factor)
 
-    # The random_* ops do not necessarily clamp.
+    # The adjust_* ops do not necessarily clamp.
     return tf.clip_by_value(image, 0.0, 1.0)
 
+def distort_color1(image, brightness_delta, saturation_factor, hue_delta, contrast_factor):
+    image = tf.image.adjust_saturation(image, saturation_factor)
+    image = tf.image.adjust_brightness(image, brightness_delta)
+    image = tf.image.adjust_contrast(image, contrast_factor)
+    image = tf.image.adjust_hue(image, hue_delta)
+
+    # The adjust_* ops do not necessarily clamp.
+    return tf.clip_by_value(image, 0.0, 1.0)
+
+def distort_color2(image, brightness_delta, saturation_factor, hue_delta, contrast_factor):
+    image = tf.image.adjust_contrast(image, contrast_factor)
+    image = tf.image.adjust_hue(image, hue_delta)
+    image = tf.image.adjust_brightness(image, brightness_delta)
+    image = tf.image.adjust_saturation(image, saturation_factor)
+
+    # The adjust_* ops do not necessarily clamp.
+    return tf.clip_by_value(image, 0.0, 1.0)
+
+def distort_color3(image, brightness_delta, saturation_factor, hue_delta, contrast_factor):
+    image = tf.image.adjust_hue(image, hue_delta)
+    image = tf.image.adjust_saturation(image, saturation_factor)
+    image = tf.image.adjust_contrast(image, contrast_factor)
+    image = tf.image.adjust_brightness(image, brightness_delta)
+
+    # The adjust_* ops do not necessarily clamp.
+    return tf.clip_by_value(image, 0.0, 1.0)
 
 def time_fn(fn, *args, **kwargs):
     start = time.clock()
