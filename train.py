@@ -91,10 +91,12 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
 
                 _, loss, summary = sess.run([train_op, dispnet.loss, summaries_op], feed_dict=feed_dict)
 
+                loss = np.squeeze(loss)
                 loss /= np.sum(loss_weights)
                 step += batch_size
-                summary_writer.add_summary(summary, step)
-
+                if summary_writer:
+                    write_dataset_summary(summary_writer, batch, step-batch_size+1)
+                    summary_writer.add_summary(summary, step)
                 steps_since_last_report += batch_size
                 if (steps_since_last_report >= report_frequency):
                     steps_since_last_report -= report_frequency
@@ -118,9 +120,9 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                         loss_weights = np.array(loss_weights_updates[loss_weights_index], dtype=np.float32)
                         print("weights update: {}".format(loss_weights))
 
-                if step >= 500000:
+                if step >= 600000:
                     if steps_since_lr_update == None:
-                        steps_since_lr_update = step - 500000
+                        steps_since_lr_update = step - 600000
                         learning_rate /= 2
                         print("step {} new learning rate {}".format(step, learning_rate))
                         sys.stdout.flush()
@@ -141,7 +143,18 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
         if save_file:
             save_network(save_file)
 
+def write_dataset_summary(summary_writer, batch, step):
+    batch_size = batch["img_left"].shape[0]
 
+    for i in range(batch_size):
+        summary=tf.Summary()
+        for k in batch.keys():
+            if k == "img_left" or k == "img_right" or k == "disp":
+                continue
+            summary.value.add(tag=k, simple_value = batch[k][i])
+        summary_writer.add_summary(summary, step+i)
+
+            
 def create_train_dataset(file, epochs, batch_size):
     train_dataset = (tf.contrib.data.TextLineDataset(file)
                      .repeat(epochs)
@@ -152,16 +165,16 @@ def create_train_dataset(file, epochs, batch_size):
                      .batch(batch_size))
     return train_dataset
 
-
 def create_test_dataset(file, batch_size):
     test_dataset = (tf.contrib.data.TextLineDataset(file)
-                    .map(data_map)
-                    .map(center_crop)
+                    .map(data_map, num_parallel_calls=2)
+                    .map(center_crop, num_parallel_calls=2)
+                    .prefetch(batch_size * 4)
                     .batch(batch_size))
     return test_dataset
 
 
-def test(dispnet, sess, test_dataset, loss_weights):
+def test(dispnet, sess, test_dataset, loss_weights, verbose=False, summaries_op = None, summary_writer=None):
     iterator = test_dataset.make_initializable_iterator()
     get_next = iterator.get_next()
     sess.run(iterator.initializer)
@@ -180,9 +193,19 @@ def test(dispnet, sess, test_dataset, loss_weights):
                 dispnet.loss_weights: loss_weights
             }
 
-            loss = sess.run([dispnet.loss], feed_dict=feed_dict)
-            total_loss += loss[0]
+            if summary_writer != None and summaries_op != None:
+                loss, summary = sess.run([dispnet.loss, summaries_op], feed_dict=feed_dict)
+                summary_writer.add_summary(summary, count)
+            else:
+                loss = sess.run([dispnet.loss], feed_dict=feed_dict)
 
+            loss = np.squeeze(loss)
+            loss /= np.sum(loss_weights)
+
+            if verbose:
+                print("train count {} loss {}".format(count, loss))
+
+            total_loss += loss
             count += 1
         except tf.errors.OutOfRangeError:
             break
@@ -276,11 +299,15 @@ def data_map(s):
     # the camera.
 
 def center_crop_im(im):
-    im = tf.image.resize_image_with_crop_or_pad(im, dispnet_h, dispnet_w)
+    o_h = tf.to_int32((dataset_h - dispnet_h) / 2)
+    o_w = tf.to_int32((dataset_w - dispnet_w) / 2)
+    im = tf.image.crop_to_bounding_box(im, o_h, o_w, dispnet_h, dispnet_w)
     return tf.reshape(im, [dispnet_h, dispnet_w, 3], name="center_crop_im")
 
 def center_crop_disp(im):
-    im = tf.image.resize_image_with_crop_or_pad(im, dispnet_h, dispnet_w)
+    o_h = tf.to_int32((dataset_h - dispnet_h) / 2)
+    o_w = tf.to_int32((dataset_w - dispnet_w) / 2)
+    im = tf.image.crop_to_bounding_box(im, o_h, o_w, dispnet_h, dispnet_w)
     return tf.reshape(im, [dispnet_h, dispnet_w, 1], name="center_crop_disp")
 
 def center_crop(d):
@@ -318,7 +345,7 @@ def spatial_augment_img(im, w, h, o_w, o_h, new_h):
 
 def gen_color_params():
     brightness_max_delta = 32. / 255.
-    brightness_delta = tf.random_uniform([], minval=brightness_max_delta, maxval=brightness_max_delta)
+    brightness_delta = tf.random_uniform([], minval=-brightness_max_delta, maxval=brightness_max_delta)
     saturation_factor = tf.random_uniform([], minval=0.5, maxval=1.5)
     hue_delta = tf.random_uniform([], minval=-0.2, maxval=0.2)
     contrast_factor = tf.random_uniform([], minval=0.5, maxval=1.5)
@@ -341,6 +368,9 @@ def data_augment(d):
     d["img_left"] = spatial_augment_img(d["img_left"], w, h, o_w, o_h, new_h)
     d["img_right"] = spatial_augment_img(d["img_right"],  w, h, o_w, o_h, new_h)
     d["disp"] = spatial_augment_img(d["disp"],  w, h, o_w, o_h, new_h)
+    d["o_h"] = o_h
+    d["o_w"] = o_w
+    d["new_h"] = new_h
 
     # color augmentation
 
@@ -348,6 +378,11 @@ def data_augment(d):
 
     d["img_left"] = color_augment_img(d["img_left"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
     d["img_right"] = color_augment_img(d["img_right"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
+    d["brightness_delta"] = brightness_delta
+    d["saturation_factor"] = saturation_factor
+    d["hue_delta"] = hue_delta
+    d["contrast_factor"] = contrast_factor
+    d["color_ordering "] = color_ordering 
 
     return d
 
@@ -427,4 +462,4 @@ def time_fn(fn, *args, **kwargs):
 
 
 if __name__ == '__main__':
-    train(32, 1000, summary_dir="summaries_2", save_file="save_2")
+    train(32, 1000, summary_dir="summaries", save_file="save")
