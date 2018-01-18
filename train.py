@@ -26,7 +26,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
     train_file = "FlyingThings3D_release_TRAIN.list"
     test_file = "FlyingThings3D_release_TEST.list"
 
-    loss_weights_update_steps = [50000, 100000, 150000, 250000, 350000, 4500000]
+    loss_weights_update_steps = [50000, 100000, 150000, 250000, 350000, 450000]
     loss_weights_index = 0
     loss_weights_updates = [[0, 0, 0, 0, 0.5, 1.0],
                             [0, 0, 0, 0.2, 1., 0.5],
@@ -110,7 +110,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                 steps_since_last_test += batch_size
                 if (steps_since_last_test >= test_frequency):
                     steps_since_last_test -= test_frequency
-                    test(dispnet, sess, test_dataset)
+                    test(dispnet, sess, test_dataset, loss_weights)
 
                 if loss_weights_index < len(loss_weights_update_steps):
                     if step > loss_weights_update_steps[loss_weights_index]:
@@ -118,9 +118,9 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                         loss_weights = np.array(loss_weights_updates[loss_weights_index], dtype=np.float32)
                         print("weights update: {}".format(loss_weights))
 
-                if step >= 400000:
+                if step >= 500000:
                     if steps_since_lr_update == None:
-                        steps_since_lr_update = step - 400000
+                        steps_since_lr_update = step - 500000
                         learning_rate /= 2
                         print("step {} new learning rate {}".format(step, learning_rate))
                         sys.stdout.flush()
@@ -161,9 +161,7 @@ def create_test_dataset(file, batch_size):
     return test_dataset
 
 
-def test(dispnet, sess, test_dataset):
-    loss_weights = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-
+def test(dispnet, sess, test_dataset, loss_weights):
     iterator = test_dataset.make_initializable_iterator()
     get_next = iterator.get_next()
     sess.run(iterator.initializer)
@@ -189,7 +187,7 @@ def test(dispnet, sess, test_dataset):
         except tf.errors.OutOfRangeError:
             break
 
-    print("average loss on test set is {}".format(total_loss / float(count)))
+    print("average loss on test set with weights {} is {}".format(loss_weights, total_loss / float(count)))
 
 
 def load_network(name):
