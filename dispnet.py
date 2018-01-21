@@ -10,8 +10,8 @@ class DispNet:
         self.loss_weights = tf.placeholder(tf.float32, shape=[6], name="loss_weights")
         self.weight_decay = tf.placeholder(tf.float32, shape=[], name='weight_decay')
 
-        tf.summary.image("img_left", self.img_left, max_outputs=1)
-        tf.summary.image("img_right", self.img_right, max_outputs=1)
+        tf.summary.image("0img_left", self.img_left, max_outputs=1)
+        tf.summary.image("0img_right", self.img_right, max_outputs=1)
 
         imgs = tf.concat([self.img_left, self.img_right], axis=3)
 
@@ -103,10 +103,10 @@ class DispNet:
     def l1loss(self, pred, gt, weight, loss_id):
         pred_shape = pred.get_shape()
         gt = tf.image.resize_images(gt, pred_shape[1:3])
-        loss = tf.multiply(weight, tf.reduce_mean(tf.abs(pred - gt)), name="loss" + str(loss_id)
+        loss = tf.multiply(weight, tf.reduce_mean(tf.abs(pred - gt)), name="loss" + str(loss_id))
 
-        tf.summary.image("pr" + str(loss_id), pred, max_outputs=1)
-        tf.summary.image("gt" + str(loss_id), gt, max_outputs=1)
+        tf.summary.image(str(loss_id) + "pr", pred, max_outputs=1)
+        tf.summary.image(str(loss_id) + "gt", gt, max_outputs=1)
         tf.summary.scalar("loss" + str(loss_id), loss)
 
         return loss
