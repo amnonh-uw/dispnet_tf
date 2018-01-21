@@ -12,6 +12,9 @@ dataset_h = 540
 dispnet_w = 768
 dispnet_h = 384
 
+do_spatial_augment = True
+do_color_augment = True
+
 # We
 # set β1 = 0.9 and β2 = 0.999 as in Kingma et al. [14]. As
 # learning rate we used λ = 1e − 4 and divided it by 2 every
@@ -95,7 +98,6 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                 loss /= np.sum(loss_weights)
                 step += batch_size
                 if summary_writer:
-                    write_dataset_summary(summary_writer, batch, step-batch_size+1)
                     summary_writer.add_summary(summary, step)
                 steps_since_last_report += batch_size
                 if (steps_since_last_report >= report_frequency):
@@ -143,7 +145,8 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
         if save_file:
             save_network(save_file)
 
-def write_dataset_summary(summary_writer, batch, step):
+def write_additional_summary(summary_writer, batch, step):
+    return
     batch_size = batch["img_left"].shape[0]
 
     for i in range(batch_size):
@@ -151,8 +154,23 @@ def write_dataset_summary(summary_writer, batch, step):
         for k in batch.keys():
             if k == "img_left" or k == "img_right" or k == "disp":
                 continue
-            summary.value.add(tag=k, simple_value = batch[k][i])
-        summary_writer.add_summary(summary, step+i)
+            if len(np.shape(batch[k][i])) == 0:
+                summary.value.add(tag=k, simple_value = batch[k][i])
+                summary_writer.add_summary(summary, step+i)
+            else:
+                from io import StringIO, BytesIO
+                import matplotlib.pyplot as plt
+                s = BytesIO()
+                img = batch[k][i]
+                if img.shape[2] != 1:
+                    plt.imsave(s, img, format='png')
+
+                    # Create an Image object
+                    img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
+                                       height=img.shape[0],
+                                       width=img.shape[1])
+                    summary.value.add(tag=k, image = img_sum)
+                    summary_writer.add_summary(summary, step+i)
 
             
 def create_train_dataset(file, epochs, batch_size):
@@ -168,22 +186,25 @@ def create_train_dataset(file, epochs, batch_size):
 def create_test_dataset(file, batch_size):
     test_dataset = (tf.contrib.data.TextLineDataset(file)
                     .map(data_map, num_parallel_calls=2)
-                    .map(center_crop, num_parallel_calls=2)
+                    # .map(center_crop, num_parallel_calls=2)
+                    .map(test_data_augment, num_parallel_calls=2)
                     .prefetch(batch_size * 4)
                     .batch(batch_size))
     return test_dataset
 
 
-def test(dispnet, sess, test_dataset, loss_weights, verbose=False, summaries_op = None, summary_writer=None):
+def test(dispnet, sess, test_dataset, loss_weights, verbose=False, summaries_op = None, summary_writer=None, more_info_fn = None):
     iterator = test_dataset.make_initializable_iterator()
     get_next = iterator.get_next()
     sess.run(iterator.initializer)
     total_loss = 0.0
     count = 0
+    step = 0
 
     while True:
         try:
             batch = sess.run(get_next)
+            batch_size = batch["img_left"].shape[0]
 
             feed_dict = {
                 dispnet.weight_decay: 0.0,
@@ -193,8 +214,12 @@ def test(dispnet, sess, test_dataset, loss_weights, verbose=False, summaries_op 
                 dispnet.loss_weights: loss_weights
             }
 
+
             if summary_writer != None and summaries_op != None:
                 loss, summary = sess.run([dispnet.loss, summaries_op], feed_dict=feed_dict)
+                if more_info_fn != None:
+                    if(more_info_fn(batch))
+                        write_additional_summary(summary_writer, batch, step)
                 summary_writer.add_summary(summary, count)
             else:
                 loss = sess.run([dispnet.loss], feed_dict=feed_dict)
@@ -203,10 +228,11 @@ def test(dispnet, sess, test_dataset, loss_weights, verbose=False, summaries_op 
             loss /= np.sum(loss_weights)
 
             if verbose:
-                print("train count {} loss {}".format(count, loss))
+                print("test count {} loss {}".format(count, loss))
 
             total_loss += loss
             count += 1
+            step += batch_size
         except tf.errors.OutOfRangeError:
             break
 
@@ -355,34 +381,65 @@ def gen_color_params():
 
     return brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering
 
+def spatial_augment(d, w, h, o_w, o_h, new_h):
+    d["pre_spatial_img_left"] = d["img_left"]
+    d["pre_spatial_img_right"] = d["img_right"]
+    d["pre_spatial_disp"] = d["disp"]
+    d["o_h"] = o_h
+    d["o_w"] = o_w
+    d["new_h"] = new_h
+    d["img_left"] = spatial_augment_img(d["img_left"], w, h, o_w, o_h, new_h)
+    d["img_right"] = spatial_augment_img(d["img_right"],  w, h, o_w, o_h, new_h)
+    d["disp"] = spatial_augment_img(d["disp"],  w, h, o_w, o_h, new_h)
+
+    return d
+
+def color_augment(d, brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering):
+    d["pre_color_img_left"] = d["img_left"]
+    d["pre_color_img_right"] = d["img_right"]
+    d["brightness_delta"] = brightness_delta
+    d["saturation_factor"] = saturation_factor
+    d["hue_delta"] = hue_delta
+    d["contrast_factor"] = contrast_factor
+    d["color_ordering "] = color_ordering 
+    d["img_left"] = color_augment_img(d["img_left"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
+    d["img_right"] = color_augment_img(d["img_right"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
+
+    return d
+
+def test_data_augment(d):
+    shape = tf.shape(d["img_left"])
+    h = shape[0]
+    w = shape[1]
+
+    if do_spatial_augment:
+        new_h = h
+        o_h = tf.to_int32((dataset_h - dispnet_h) / 2)
+        o_w = tf.to_int32((dataset_w - dispnet_w) / 2)
+        d = spatial_augment(d, w, h, o_w, o_h, new_h)
+
+    if do_color_augment:
+        brightness_delta = 0.0
+        saturation_factor = 1.0
+        hue_delta = 0.0
+        contrast_factor = 1.0
+        color_ordering = 0
+        d = color_augment(d, brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
+
+    return d
 
 def data_augment(d):
     shape = tf.shape(d["img_left"])
     h = shape[0]
     w = shape[1]
 
-    # spatial augmentation
+    if do_spatial_augment:
+        o_w, o_h, new_h = gen_spatial_params(w,h)
+        d = spatial_augment(d, w, h, o_w, o_h, new_h)
 
-    o_w, o_h, new_h = gen_spatial_params(w,h)
-
-    d["img_left"] = spatial_augment_img(d["img_left"], w, h, o_w, o_h, new_h)
-    d["img_right"] = spatial_augment_img(d["img_right"],  w, h, o_w, o_h, new_h)
-    d["disp"] = spatial_augment_img(d["disp"],  w, h, o_w, o_h, new_h)
-    d["o_h"] = o_h
-    d["o_w"] = o_w
-    d["new_h"] = new_h
-
-    # color augmentation
-
-    brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering = gen_color_params()
-
-    d["img_left"] = color_augment_img(d["img_left"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
-    d["img_right"] = color_augment_img(d["img_right"],brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
-    d["brightness_delta"] = brightness_delta
-    d["saturation_factor"] = saturation_factor
-    d["hue_delta"] = hue_delta
-    d["contrast_factor"] = contrast_factor
-    d["color_ordering "] = color_ordering 
+    if do_color_augment:
+        brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering = gen_color_params()
+        d = color_augment(d, brightness_delta, saturation_factor, hue_delta, contrast_factor, color_ordering)
 
     return d
 
@@ -462,4 +519,4 @@ def time_fn(fn, *args, **kwargs):
 
 
 if __name__ == '__main__':
-    train(32, 1000, summary_dir="summaries", save_file="save")
+    train(32, 1000, summary_dir="no_color_aug_summaries", save_file="no_color_aug_save")
