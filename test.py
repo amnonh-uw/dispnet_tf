@@ -29,4 +29,6 @@ def run_test(batch_size, load_file, test_file, summary_dir=None):
 
 if __name__ == '__main__':
     test_file = "FlyingThings3D_release_TEST.list"
-    run_test(32, "save", test_file, summary_dir="test_with_aug_summary")
+    # run_test(1, "save", test_file, summary_dir="test_summary")
+    # run_test(1, "no_color_aug_save", test_file, summary_dir="no_color_aug_test_summary")
+    run_test(1, "save", test_file, summary_dir="test_summary")
