@@ -83,6 +83,10 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                 batch = sess.run(get_next)
                 batch_size = batch["img_left"].shape[0]
 
+                tf.summary.text("img_left_file", batch["img_left_file"])
+                tf.summary.text("img_right_file", batch["img_right_file"])
+                tf.summary.text("disp_file", batch["disp_file"])
+
                 feed_dict = {
                     adam_learning_rate: learning_rate,
                     dispnet.weight_decay: weight_decay,
@@ -206,6 +210,10 @@ def test(dispnet, sess, test_dataset, loss_weights, verbose=False, summaries_op 
             batch = sess.run(get_next)
             batch_size = batch["img_left"].shape[0]
 
+            tf.summary.text("img_left_file", batch["img_left_file"])
+            tf.summary.text("img_right_file", batch["img_right_file"])
+            tf.summary.text("disp_file", batch["disp_file"]
+
             feed_dict = {
                 dispnet.weight_decay: 0.0,
                 dispnet.img_left: batch["img_left"],
@@ -305,8 +313,11 @@ def data_map(s):
     s = tf.string_split([s], delimiter="\t")
 
     example = dict()
+    example["img_left_file"] = s.values[0]
     example["img_left"] = load_image(s.values[0])
+    example["img_right_file"] = s.values[1]
     example["img_right"] = load_image(s.values[1])
+    example["disp_file"] = s.values[2]
     disp = tf.py_func(load_pfm, [s.values[2]], tf.float32)
     example["disp"] = tf.reshape(disp, [dataset_h, dataset_w, 1], name="load_pfm")
 
