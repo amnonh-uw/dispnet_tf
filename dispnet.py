@@ -13,6 +13,13 @@ class DispNet:
         tf.summary.image("0img_left", self.img_left, max_outputs=1)
         tf.summary.image("0img_right", self.img_right, max_outputs=1)
 
+        self.img_left_file = tf.placeholder(tf.string)
+        tf.summary.text("img_left_file", self.img_left_file)
+        self.img_right_file = tf.placeholder(tf.string)
+        tf.summary.text("img_right_file", self.img_right_file)
+        self.disp_file = tf.placeholder(tf.string)
+        tf.summary.text("disp_file", self.disp_file)
+
         imgs = tf.concat([self.img_left, self.img_right], axis=3)
 
         conv1 = self.conv_relu(imgs, 7, 2, 64, "conv1")
