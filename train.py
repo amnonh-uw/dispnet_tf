@@ -11,6 +11,7 @@ dataset_w = 960
 dataset_h = 540
 dispnet_w = 768
 dispnet_h = 384
+dispnet_mean = [120.16955729, 116.97606771, 106.57792824]
 
 do_spatial_augment = True
 do_color_augment = True
@@ -62,6 +63,7 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
 
     with tf.Session() as sess:
         step = 0
+        start_time = time.time()
         steps_since_lr_update = None
         steps_since_last_report = 0
         steps_since_last_save = 0
@@ -83,17 +85,16 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                 batch = sess.run(get_next)
                 batch_size = batch["img_left"].shape[0]
 
-                tf.summary.text("img_left_file", batch["img_left_file"])
-                tf.summary.text("img_right_file", batch["img_right_file"])
-                tf.summary.text("disp_file", batch["disp_file"])
-
                 feed_dict = {
                     adam_learning_rate: learning_rate,
                     dispnet.weight_decay: weight_decay,
                     dispnet.img_left: batch["img_left"],
                     dispnet.img_right: batch["img_right"],
                     dispnet.disp: batch["disp"],
-                    dispnet.loss_weights: loss_weights
+                    dispnet.loss_weights: loss_weights,
+                    dispnet.img_left_file: batch["img_left_file"],
+                    dispnet.img_right_file: batch["img_right_file"],
+                    dispnet.disp_file: batch["disp_file"]
                 }
 
                 _, loss, summary = sess.run([train_op, dispnet.loss, summaries_op], feed_dict=feed_dict)
@@ -106,7 +107,9 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                 steps_since_last_report += batch_size
                 if (steps_since_last_report >= report_frequency):
                     steps_since_last_report -= report_frequency
-                    print("train step {} loss {}".format(step, loss))
+                    current_time = time.time()
+                    print("train step {} loss {} time {}".format(step, loss, current_time - start_time))
+                    start_time = current_time
                     sys.stdout.flush()
 
                 steps_since_last_save += batch_size
@@ -183,6 +186,7 @@ def create_train_dataset(file, epochs, batch_size):
                      .shuffle(buffer_size=22390)
                      .map(data_map, num_parallel_calls=2)
                      .map(data_augment, num_parallel_calls=2)
+                     .map(mean_substraction, num_parallel_calls=2)
                      .prefetch(batch_size * 4)
                      .batch(batch_size))
     return train_dataset
@@ -190,8 +194,9 @@ def create_train_dataset(file, epochs, batch_size):
 def create_test_dataset(file, batch_size):
     test_dataset = (tf.contrib.data.TextLineDataset(file)
                     .map(data_map, num_parallel_calls=2)
-                    # .map(center_crop, num_parallel_calls=2)
-                    .map(test_data_augment, num_parallel_calls=2)
+                    .map(center_crop, num_parallel_calls=2)
+                    # .map(test_data_augment, num_parallel_calls=2)
+                    .map(mean_substraction, num_parallel_calls=2)
                     .prefetch(batch_size * 4)
                     .batch(batch_size))
     return test_dataset
@@ -210,23 +215,22 @@ def test(dispnet, sess, test_dataset, loss_weights, verbose=False, summaries_op 
             batch = sess.run(get_next)
             batch_size = batch["img_left"].shape[0]
 
-            tf.summary.text("img_left_file", batch["img_left_file"])
-            tf.summary.text("img_right_file", batch["img_right_file"])
-            tf.summary.text("disp_file", batch["disp_file"]
-
             feed_dict = {
                 dispnet.weight_decay: 0.0,
                 dispnet.img_left: batch["img_left"],
                 dispnet.img_right: batch["img_right"],
                 dispnet.disp: batch["disp"],
-                dispnet.loss_weights: loss_weights
+                dispnet.loss_weights: loss_weights,
+                dispnet.img_left_file: batch["img_left_file"],
+                dispnet.img_right_file: batch["img_right_file"],
+                dispnet.disp_file: batch["disp_file"]
             }
 
 
             if summary_writer != None and summaries_op != None:
                 loss, summary = sess.run([dispnet.loss, summaries_op], feed_dict=feed_dict)
                 if more_info_fn != None:
-                    if(more_info_fn(batch))
+                    if more_info_fn(batch):
                         write_additional_summary(summary_writer, batch, step)
                 summary_writer.add_summary(summary, count)
             else:
@@ -266,15 +270,25 @@ def load_image(file):
     image_string = tf.read_file(file)
     image_decoded = tf.image.decode_image(image_string, channels=3)
 
-    img_mean = tf.constant([120.16955729, 116.97606771, 106.57792824], dtype=tf.float32) / 255.0
-    img_mean = tf.reshape(img_mean, [1, 1, 3])
-
     image = tf.image.convert_image_dtype(image_decoded, dtype=tf.float32)
-    image -= img_mean
     image = tf.reshape(image, [dataset_h, dataset_w, 3], name="load_image")
 
     return image
 
+def save_image(im, file):
+    im = np.squeeze(im)
+    img_mean = np.array(dispnet_mean) / 255.0
+    img_mean = np.reshape(img_mean, [1, 1, 3])
+    im += img_mean
+    im *= 255.0
+    im = im.astype(np.uint8)
+    im = Image.fromarray(im)
+    im.save(file)
+
+def copy_image(f1, f2):
+    f1 = f1[0].decode('UTF-8')
+    im = Image.open(f1)
+    im.save(f2)
 
 def load_pfm(name):
     with open(name, "rb") as file:
@@ -311,15 +325,18 @@ def load_pfm(name):
 
 def data_map(s):
     s = tf.string_split([s], delimiter="\t")
-
-    example = dict()
-    example["img_left_file"] = s.values[0]
-    example["img_left"] = load_image(s.values[0])
-    example["img_right_file"] = s.values[1]
-    example["img_right"] = load_image(s.values[1])
-    example["disp_file"] = s.values[2]
-    disp = tf.py_func(load_pfm, [s.values[2]], tf.float32)
-    example["disp"] = tf.reshape(disp, [dataset_h, dataset_w, 1], name="load_pfm")
+    with tf.control_dependencies([tf.assert_equal(tf.size(s), 3)]):
+        example = dict()
+        with tf.control_dependencies([tf.assert_type(s.values[0], tf.string)]):
+            example["img_left_file"] = s.values[0]
+            example["img_left"] = load_image(s.values[0])
+        with tf.control_dependencies([tf.assert_type(s.values[1], tf.string)]):
+            example["img_right_file"] = s.values[1]
+            example["img_right"] = load_image(s.values[1])
+        with tf.control_dependencies([tf.assert_type(s.values[1], tf.string)]):
+            example["disp_file"] = s.values[2]
+            disp = tf.py_func(load_pfm, [s.values[2]], tf.float32)
+            example["disp"] = tf.reshape(disp, [dataset_h, dataset_w, 1], name="load_pfm")
 
     return example
 
@@ -347,6 +364,15 @@ def center_crop_disp(im):
     im = tf.image.crop_to_bounding_box(im, o_h, o_w, dispnet_h, dispnet_w)
     return tf.reshape(im, [dispnet_h, dispnet_w, 1], name="center_crop_disp")
 
+def mean_substraction(d):
+    img_mean = tf.constant(dispnet_mean, dtype=tf.float32) / 255.0
+    img_mean = tf.reshape(img_mean, [1, 1, 3])
+    d["img_left"] -= img_mean
+    d["img_right"] -= img_mean
+
+    return d
+
+    image -= img_mean
 def center_crop(d):
     d["img_left"] = center_crop_im(d["img_left"])
     d["img_right"] = center_crop_im(d["img_right"])
@@ -530,4 +556,10 @@ def time_fn(fn, *args, **kwargs):
 
 
 if __name__ == '__main__':
-    train(32, 1000, summary_dir="no_color_aug_summaries", save_file="no_color_aug_save")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("summary_dir", help="summary direcotry")
+    parser.add_argument("save", help="save direcotry")
+  
+    args = parser.parse_args()
+    train(32, 1000, summary_dir=args.summary_dir, save_file=args.save)
