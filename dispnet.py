@@ -112,8 +112,11 @@ class DispNet:
         gt = tf.image.resize_images(gt, pred_shape[1:3])
         loss = tf.multiply(weight, tf.reduce_mean(tf.abs(pred - gt)), name="loss" + str(loss_id))
 
-        tf.summary.image(str(loss_id) + "pr", pred, max_outputs=1)
-        tf.summary.image(str(loss_id) + "gt", gt, max_outputs=1)
+        if loss_id == 1:
+            tf.summary.image(str(loss_id) + "pr", pred, max_outputs=1)
+            tf.summary.image(str(loss_id) + "gt", gt, max_outputs=1)
+            tf.summary.image(str(loss_id) + "delta", pred-gt, max_outputs=1)
+
         tf.summary.scalar("loss" + str(loss_id), loss)
 
         return loss
