@@ -11,7 +11,7 @@ dataset_w = 960
 dataset_h = 540
 dispnet_w = 768
 dispnet_h = 384
-dispnet_mean = [120.16955729, 116.97606771, 106.57792824]
+dispnet_img_mean = [120.16955729, 116.97606771, 106.57792824]
 
 do_spatial_augment = True
 do_color_augment = True
@@ -138,8 +138,8 @@ def train(batch_size, epochs, summary_dir=None, load_file=None, save_file=None):
                     else:
                         steps_since_lr_update += batch_size
 
-                        if steps_since_lr_update >= 200000:
-                            steps_since_lr_update -= 200000
+                        if steps_since_lr_update >= 300000:
+                            steps_since_lr_update -= 300000
                             learning_rate /= 2
                             print("step {} new learning rate {}".format(step, learning_rate))
                             sys.stdout.flush()
@@ -186,7 +186,7 @@ def create_train_dataset(file, epochs, batch_size):
                      .shuffle(buffer_size=22390)
                      .map(data_map, num_parallel_calls=2)
                      .map(data_augment, num_parallel_calls=2)
-                     .map(mean_substraction, num_parallel_calls=2)
+                     .map(mean_substraction_and_noise, num_parallel_calls=2)
                      .prefetch(batch_size * 4)
                      .batch(batch_size))
     return train_dataset
@@ -195,7 +195,6 @@ def create_test_dataset(file, batch_size):
     test_dataset = (tf.contrib.data.TextLineDataset(file)
                     .map(data_map, num_parallel_calls=2)
                     .map(center_crop, num_parallel_calls=2)
-                    # .map(test_data_augment, num_parallel_calls=2)
                     .map(mean_substraction, num_parallel_calls=2)
                     .prefetch(batch_size * 4)
                     .batch(batch_size))
@@ -240,7 +239,11 @@ def test(dispnet, sess, test_dataset, loss_weights, verbose=False, summaries_op 
             loss /= np.sum(loss_weights)
 
             if verbose:
-                print("test count {} loss {}".format(count, loss))
+                if loss > 20:
+                    print("test count {} loss {} {} {} {}".format(count, loss,
+                          batch["img_left_file"], batch["img_right_file"], batch["disp_file"]))
+                else:
+                    print("test count {} loss {}".format(count, loss))
 
             total_loss += loss
             count += 1
@@ -277,7 +280,7 @@ def load_image(file):
 
 def save_image(im, file):
     im = np.squeeze(im)
-    img_mean = np.array(dispnet_mean) / 255.0
+    img_mean = np.array(dispnet_img_mean) / 255.0
     img_mean = np.reshape(img_mean, [1, 1, 3])
     im += img_mean
     im *= 255.0
@@ -314,8 +317,20 @@ def load_pfm(name):
         data = np.fromfile(file, endian + 'f')
 
     nans = np.count_nonzero(np.isnan(data))
+    large_value = 32000
+    large = np.count_nonzero(np.greater(data, large_value))
     if nans != 0:
-        print("load_pfm: warning {} nans encountered".format(nan))
+        print("load_pfm: warning {}: {} nans encountered".format(name, nan))
+        sys.stdout.flush()
+
+    if large != 0:
+        print("load_pfm: {}: found large values".format(name))
+        print(np.extract(np.greater(data, large_value), data))
+        sys.stdout.flush()
+
+    # float converts to short here
+    # it just truncates the floating part
+    # shouldn't make a big diference
 
     shape = (height, width, 1)
     data = np.reshape(data, shape) * scale
@@ -325,18 +340,14 @@ def load_pfm(name):
 
 def data_map(s):
     s = tf.string_split([s], delimiter="\t")
-    with tf.control_dependencies([tf.assert_equal(tf.size(s), 3)]):
-        example = dict()
-        with tf.control_dependencies([tf.assert_type(s.values[0], tf.string)]):
-            example["img_left_file"] = s.values[0]
-            example["img_left"] = load_image(s.values[0])
-        with tf.control_dependencies([tf.assert_type(s.values[1], tf.string)]):
-            example["img_right_file"] = s.values[1]
-            example["img_right"] = load_image(s.values[1])
-        with tf.control_dependencies([tf.assert_type(s.values[1], tf.string)]):
-            example["disp_file"] = s.values[2]
-            disp = tf.py_func(load_pfm, [s.values[2]], tf.float32)
-            example["disp"] = tf.reshape(disp, [dataset_h, dataset_w, 1], name="load_pfm")
+    example = dict()
+    example["img_left_file"] = s.values[0]
+    example["img_left"] = load_image(s.values[0])
+    example["img_right_file"] = s.values[1]
+    example["img_right"] = load_image(s.values[1])
+    example["disp_file"] = s.values[2]
+    disp = tf.py_func(load_pfm, [s.values[2]], tf.float32)
+    example["disp"] = tf.reshape(disp, [dataset_h, dataset_w, 1], name="load_pfm")
 
     return example
 
@@ -364,8 +375,16 @@ def center_crop_disp(im):
     im = tf.image.crop_to_bounding_box(im, o_h, o_w, dispnet_h, dispnet_w)
     return tf.reshape(im, [dispnet_h, dispnet_w, 1], name="center_crop_disp")
 
+def mean_substraction_and_noise(d):
+    img_mean = tf.constant(dispnet_img_mean, dtype=tf.float32) / 255.0
+    img_mean = tf.reshape(img_mean, [1, 1, 3])
+    d["img_left"] += tf.random_uniform([dispnet_h, dispnet_w, 3], minval=0., maxval=0.06) - img_mean
+    d["img_right"] += tf.random_uniform([dispnet_h, dispnet_w, 3], minval=0., maxval=0.06) - img_mean
+
+    return d
+
 def mean_substraction(d):
-    img_mean = tf.constant(dispnet_mean, dtype=tf.float32) / 255.0
+    img_mean = tf.constant(dispnet_img_mean, dtype=tf.float32) / 255.0
     img_mean = tf.reshape(img_mean, [1, 1, 3])
     d["img_left"] -= img_mean
     d["img_right"] -= img_mean
