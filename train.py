@@ -194,7 +194,7 @@ def create_train_dataset(file, epochs, batch_size):
 def create_test_dataset(file, batch_size):
     test_dataset = (tf.contrib.data.TextLineDataset(file)
                     .map(data_map, num_parallel_calls=2)
-                    .map(center_crop, num_parallel_calls=2)
+                    # .map(center_crop, num_parallel_calls=2)
                     .map(mean_substraction, num_parallel_calls=2)
                     .prefetch(batch_size * 4)
                     .batch(batch_size))
@@ -369,12 +369,6 @@ def center_crop_im(im):
     im = tf.image.crop_to_bounding_box(im, o_h, o_w, dispnet_h, dispnet_w)
     return tf.reshape(im, [dispnet_h, dispnet_w, 3], name="center_crop_im")
 
-def center_crop_disp(im):
-    o_h = tf.to_int32((dataset_h - dispnet_h) / 2)
-    o_w = tf.to_int32((dataset_w - dispnet_w) / 2)
-    im = tf.image.crop_to_bounding_box(im, o_h, o_w, dispnet_h, dispnet_w)
-    return tf.reshape(im, [dispnet_h, dispnet_w, 1], name="center_crop_disp")
-
 def mean_substraction_and_noise(d):
     img_mean = tf.constant(dispnet_img_mean, dtype=tf.float32) / 255.0
     img_mean = tf.reshape(img_mean, [1, 1, 3])
@@ -388,14 +382,6 @@ def mean_substraction(d):
     img_mean = tf.reshape(img_mean, [1, 1, 3])
     d["img_left"] -= img_mean
     d["img_right"] -= img_mean
-
-    return d
-
-    image -= img_mean
-def center_crop(d):
-    d["img_left"] = center_crop_im(d["img_left"])
-    d["img_right"] = center_crop_im(d["img_right"])
-    d["disp"] = center_crop_disp(d["disp"])
 
     return d
 

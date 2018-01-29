@@ -4,9 +4,9 @@ class DispNet:
     def __init__(self):
         self.kernel_regularizer = tf.contrib.layers.l2_regularizer(1.0)
 
-        self.img_left = tf.placeholder(tf.float32, shape=[None, 384, 768, 3], name="img_left")
-        self.img_right = tf.placeholder(tf.float32, shape=[None, 384, 768, 3], name="img_right")
-        self.disp = tf.placeholder(tf.float32, shape=[None, 384, 768, 1], name="disp")
+        self.img_left = tf.placeholder(tf.float32, shape=[None, None, None, 3], name="img_left")
+        self.img_right = tf.placeholder(tf.float32, shape=[None, None, None, 3], name="img_right")
+        self.disp = tf.placeholder(tf.float32, shape=[None, None, None, 1], name="disp")
         self.loss_weights = tf.placeholder(tf.float32, shape=[6], name="loss_weights")
         self.weight_decay = tf.placeholder(tf.float32, shape=[], name='weight_decay')
 
@@ -108,7 +108,7 @@ class DispNet:
         return self.upconv(inputs, kernel_size, stride, channels, activation=tf.nn.relu, name=name)
 
     def l1loss(self, pred, gt, weight, loss_id):
-        pred_shape = pred.get_shape()
+        pred_shape = tf.shape(pred)
         gt = tf.image.resize_images(gt, pred_shape[1:3])
         loss = tf.multiply(weight, tf.reduce_mean(tf.abs(pred - gt)), name="loss" + str(loss_id))
 
