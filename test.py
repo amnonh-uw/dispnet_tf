@@ -16,7 +16,6 @@ def run_test(batch_size, load_file, test_file, summary_dir=None):
     sys.stdout.flush()
 
     test_dataset = create_test_dataset(test_file, batch_size)
-    # test_dataset = create_train_dataset(test_file, 1, batch_size)
     loss_weights = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
     print("testing {} with weights {}".format(test_file, loss_weights))
@@ -28,7 +27,11 @@ def run_test(batch_size, load_file, test_file, summary_dir=None):
         test(dispnet, sess, test_dataset, loss_weights, verbose=True, summaries_op=summaries_op, summary_writer=summary_writer)
 
 if __name__ == '__main__':
-    test_file = "FlyingThings3D_release_TEST.list"
-    # run_test(1, "save", test_file, summary_dir="test_summary")
-    # run_test(1, "no_color_aug_save", test_file, summary_dir="no_color_aug_test_summary")
-    run_test(1, "save", test_file, summary_dir="test_summary")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("summary_dir", help="summary direcotry")
+    parser.add_argument("load", help="load direcotry")
+    parser.add_argument("--test-file", default="FlyingThings3D_release_TEST.list")
+    args = parser.parse_args()
+
+    run_test(1, args.load, args.test_file, summary_dir=args.summary_dir)
